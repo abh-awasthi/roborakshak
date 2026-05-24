@@ -1,6 +1,6 @@
-# Quick Start Guide
+# Quick Start
 
-## 30-Second Installation
+## Raspberry Pi Install (Fastest Path)
 
 ```bash
 git clone https://github.com/abh-awasthi/roborakshak.git
@@ -8,71 +8,51 @@ cd roborakshak
 sudo bash install.sh
 ```
 
-That's it! Your RoboRakshak will be running in 5-10 minutes.
+Then open:
 
----
-
-## Access Control Panel
-
-Open your browser:
-```
+```text
 http://<your-pi-ip>:5000
 ```
 
-To find your Pi's IP:
+Find Pi IP:
+
 ```bash
 hostname -I
 ```
 
----
+## Local Development Run
 
-## Control Methods
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python3 backend/app.py
+```
 
-### Mouse/Touch
-- Click direction buttons
-- Drag speed slider
-- Click preset buttons
+Open `http://localhost:5000`.
 
-### Keyboard
-- ↑↓←→ = Control direction
-- SPACE = Stop
-- +/- = Adjust speed
+## Control API (Current)
 
----
+- `POST /api/motor/forward|backward|left|right|stop`
+- `POST /api/motor/speed/<int:speed>`
+- `GET /api/status`
 
-## Check It's Working
+## FORCE_MOCK
+
+Use mock GPIO explicitly:
+
+```bash
+FORCE_MOCK=1 python3 backend/app.py
+```
+
+## Health Checks
 
 ```bash
 sudo systemctl status roborakshak.service
-```
-
-Should show: **Active (running)**
-
----
-
-## View Logs
-
-```bash
 sudo journalctl -u roborakshak.service -f
 ```
 
----
+## Known Current Mismatch
 
-## Need Help?
-
-- **Can't access UI?** Check: `sudo systemctl status roborakshak.service`
-- **Motors not responding?** Check: `sudo journalctl -u roborakshak.service -f`
-- **GPIO errors?** Run: `sudo usermod -a -G gpio $USER` then reboot
-
----
-
-## Full Documentation
-
-- [README.md](README.md) - Complete overview
-- [INSTALLATION.md](INSTALLATION.md) - Detailed setup
-- [DEVELOPMENT.md](DEVELOPMENT.md) - Code guide
-- [API_PLAN.md](API_PLAN.md) - API reference
-
----
-
-**Enjoy! 🤖**
+`install.sh` currently calculates `PROJECT_DIR` as parent of the script directory.  
+This may create service/venv paths that do not match the repo root in some layouts.

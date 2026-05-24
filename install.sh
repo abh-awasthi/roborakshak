@@ -81,6 +81,8 @@ Type=simple
 User=$CURRENT_USER
 WorkingDirectory=$PROJECT_DIR/backend
 Environment="PATH=$PROJECT_DIR/venv/bin"
+# Set FORCE_MOCK=1 to force mock GPIO (useful for testing without hardware)
+Environment="FORCE_MOCK=0"
 ExecStart=$PROJECT_DIR/venv/bin/python3 app.py
 Restart=on-failure
 RestartSec=10
@@ -162,6 +164,18 @@ source /path/to/RoboRakshak/venv/bin/activate
 # Run the app directly
 cd /path/to/RoboRakshak/backend
 python3 app.py
+```
+
+## Forcing Mock GPIO
+You can force the application to use the mock GPIO implementation (good for testing without hardware).
+
+```bash
+# Run locally with mock GPIO
+FORCE_MOCK=1 python3 app.py
+
+# Or for systemd-managed service (set, then restart)
+sudo systemctl set-environment FORCE_MOCK=1
+sudo systemctl restart roborakshak.service
 ```
 
 ## Access the Control Panel
