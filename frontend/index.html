@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RoboRakshak - Motor Control</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🤖 RoboRakshak Control Panel</h1>
+            <div class="status-bar">
+                <div class="status-item">
+                    <span class="label">Status:</span>
+                    <span class="value" id="statusValue">Ready</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Speed:</span>
+                    <span class="value" id="speedValue">50%</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Direction:</span>
+                    <span class="value" id="directionValue">Stopped</span>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <section class="control-section">
+                <h2>Motor Control</h2>
+                
+                <!-- Direction Control -->
+                <div class="direction-control">
+                    <h3>Direction</h3>
+                    <div class="dpad">
+                        <button class="arrow-btn up" id="forwardBtn" title="Forward">
+                            <span class="arrow">▲</span>
+                        </button>
+                        <div class="side-buttons">
+                            <button class="arrow-btn left" id="leftBtn" title="Left">
+                                <span class="arrow">◀</span>
+                            </button>
+                            <button class="arrow-btn center stop" id="stopBtn" title="Stop">
+                                <span class="text">STOP</span>
+                            </button>
+                            <button class="arrow-btn right" id="rightBtn" title="Right">
+                                <span class="arrow">▶</span>
+                            </button>
+                        </div>
+                        <button class="arrow-btn down" id="backwardBtn" title="Backward">
+                            <span class="arrow">▼</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Speed Control -->
+                <div class="speed-control">
+                    <h3>Motor Speed</h3>
+                    <div class="speed-slider-container">
+                        <span class="speed-label">0%</span>
+                        <input type="range" id="speedSlider" min="0" max="100" value="50" class="speed-slider">
+                        <span class="speed-label">100%</span>
+                    </div>
+                    <div class="speed-display">
+                        <span>Current Speed: <strong id="speedDisplay">50</strong>%</span>
+                    </div>
+                    <div class="preset-speeds">
+                        <button class="preset-btn" data-speed="25">Slow (25%)</button>
+                        <button class="preset-btn" data-speed="50">Medium (50%)</button>
+                        <button class="preset-btn" data-speed="75">Fast (75%)</button>
+                        <button class="preset-btn" data-speed="100">Max (100%)</button>
+                    </div>
+                </div>
+
+                <!-- Keyboard Controls Info -->
+                <div class="keyboard-info">
+                    <h3>Keyboard Controls</h3>
+                    <ul>
+                        <li><kbd>↑</kbd> - Move Forward</li>
+                        <li><kbd>↓</kbd> - Move Backward</li>
+                        <li><kbd>←</kbd> - Turn Left</li>
+                        <li><kbd>→</kbd> - Turn Right</li>
+                        <li><kbd>SPACE</kbd> - Stop</li>
+                        <li><kbd>+</kbd> - Increase Speed</li>
+                        <li><kbd>-</kbd> - Decrease Speed</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section class="info-section">
+                <h3>Connection Info</h3>
+                <div class="info-box">
+                    <p><strong>Host:</strong> <span id="hostInfo">localhost:5000</span></p>
+                    <p><strong>Last Command:</strong> <span id="lastCommand">None</span></p>
+                    <p><strong>Connection Status:</strong> <span id="connectionStatus" class="status-connected">Connected</span></p>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>&copy; 2026 RoboRakshak Project | AI-Powered Home Security Robot</p>
+        </footer>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
