@@ -226,10 +226,25 @@ class RoboRakshakController {
                 ? this.userRole.charAt(0).toUpperCase() + this.userRole.slice(1)
                 : 'Guest';
         }
+        const controlsLocked = !isLoggedIn || !this.isDriver() || !this.isConnected || !this.networkOnline;
         if (container) {
-            const controlsLocked = !isLoggedIn || !this.isDriver() || !this.isConnected || !this.networkOnline;
             container.classList.toggle('viewer-mode', controlsLocked);
         }
+        const controlButtons = [
+            'forwardBtn',
+            'backwardBtn',
+            'leftBtn',
+            'rightBtn',
+            'stopBtn',
+            'speedSlider'
+        ];
+        controlButtons.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = controlsLocked;
+        });
+        document.querySelectorAll('.speed-control .preset-btn').forEach(btn => {
+            btn.disabled = controlsLocked;
+        });
         if (emergencyFab) {
             emergencyFab.style.display = this.isDriver() ? 'block' : 'none';
         }
@@ -336,6 +351,10 @@ class RoboRakshakController {
 
     async sendCommand(endpoint) {
         if (endpoint.startsWith('/api/motor/') && !this.isDriver()) {
+            const statusEl = document.getElementById('statusValue');
+            if (statusEl) {
+                statusEl.textContent = 'Driver login required';
+            }
             this.triggerFeedback('error');
             return null;
         }

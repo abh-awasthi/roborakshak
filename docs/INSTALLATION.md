@@ -44,6 +44,10 @@ pip install -r requirements.txt
 python3 backend/app.py
 ```
 
+**Driver login is required before motor controls work.**
+- Default driver PIN: `4321`
+- Viewer PIN: `1111`
+
 Or use the installer for automatic service setup:
 
 ```bash

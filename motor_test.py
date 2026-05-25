@@ -146,11 +146,76 @@ def rotate_right(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev, speed):
 def parse_args():
     parser = argparse.ArgumentParser(description='RoboRakshak motor test helper')
     parser.add_argument('command', choices=[
-        'forward', 'backward', 'left', 'right', 'rotate_left', 'rotate_right', 'stop'
+        'forward', 'backward', 'left', 'right', 'rotate_left', 'rotate_right', 'stop', 'diagnose', 'sequence'
     ], help='Motor command to execute')
     parser.add_argument('--speed', type=int, default=60, help='PWM speed percentage (0-100)')
     parser.add_argument('--duration', type=float, default=3.0, help='Duration to run the command in seconds')
+    parser.add_argument('--delay', type=float, default=1.2, help='Delay between diagnostic steps and sequence actions')
     return parser.parse_args()
+
+
+def diagnose_pins(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev, delay=1.2):
+    print('Running GPIO pin diagnosis...')
+    stop_all(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev)
+    time.sleep(0.4)
+
+    print('Pin test: LEFT_MOTOR_PIN1 (IN1) high')
+    GPIO.output(LEFT_MOTOR_PIN1, GPIO.HIGH)
+    GPIO.output(LEFT_MOTOR_PIN2, GPIO.LOW)
+    GPIO.output(RIGHT_MOTOR_PIN1, GPIO.LOW)
+    GPIO.output(RIGHT_MOTOR_PIN2, GPIO.LOW)
+    time.sleep(delay)
+
+    print('Pin test: LEFT_MOTOR_PIN2 (IN2) high')
+    GPIO.output(LEFT_MOTOR_PIN1, GPIO.LOW)
+    GPIO.output(LEFT_MOTOR_PIN2, GPIO.HIGH)
+    time.sleep(delay)
+
+    print('Pin test: RIGHT_MOTOR_PIN1 (IN3) high')
+    GPIO.output(LEFT_MOTOR_PIN2, GPIO.LOW)
+    GPIO.output(RIGHT_MOTOR_PIN1, GPIO.HIGH)
+    time.sleep(delay)
+
+    print('Pin test: RIGHT_MOTOR_PIN2 (IN4) high')
+    GPIO.output(RIGHT_MOTOR_PIN1, GPIO.LOW)
+    GPIO.output(RIGHT_MOTOR_PIN2, GPIO.HIGH)
+    time.sleep(delay)
+
+    stop_all(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev)
+    print('GPIO pin diagnosis complete.')
+
+
+def run_sequence(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev, speed, delay=1.2):
+    print('Running movement sequence: forward, backward, turn left, turn right, rotate left, rotate right')
+    forward(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev, speed)
+    time.sleep(delay)
+    stop_all(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev)
+    time.sleep(0.4)
+
+    backward(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev, speed)
+    time.sleep(delay)
+    stop_all(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev)
+    time.sleep(0.4)
+
+    turn_left(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev, speed)
+    time.sleep(delay)
+    stop_all(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev)
+    time.sleep(0.4)
+
+    turn_right(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev, speed)
+    time.sleep(delay)
+    stop_all(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev)
+    time.sleep(0.4)
+
+    rotate_left(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev, speed)
+    time.sleep(delay)
+    stop_all(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev)
+    time.sleep(0.4)
+
+    rotate_right(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev, speed)
+    time.sleep(delay)
+    stop_all(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev)
+    print('Movement sequence complete.')
 
 
 def main():
@@ -161,22 +226,28 @@ def main():
     try:
         if args.command == 'forward':
             forward(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev, args.speed)
+            time.sleep(args.duration)
         elif args.command == 'backward':
             backward(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev, args.speed)
+            time.sleep(args.duration)
         elif args.command == 'left':
             turn_left(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev, args.speed)
+            time.sleep(args.duration)
         elif args.command == 'right':
             turn_right(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev, args.speed)
+            time.sleep(args.duration)
         elif args.command == 'rotate_left':
             rotate_left(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev, args.speed)
+            time.sleep(args.duration)
         elif args.command == 'rotate_right':
             rotate_right(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev, args.speed)
+            time.sleep(args.duration)
         elif args.command == 'stop':
             stop_all(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev)
-
-        if args.command != 'stop':
-            time.sleep(args.duration)
-            stop_all(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev)
+        elif args.command == 'diagnose':
+            diagnose_pins(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev, args.delay)
+        elif args.command == 'sequence':
+            run_sequence(left_pwm, left_pwm_rev, right_pwm, right_pwm_rev, args.speed, args.delay)
     finally:
         if not MOCK_GPIO:
             GPIO.cleanup()
