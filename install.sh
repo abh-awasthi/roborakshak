@@ -43,23 +43,12 @@ echo -e "${GREEN}Installation User: $CURRENT_USER${NC}"
 echo ""
 
 # Step 1: Update system packages
-echo -e "${YELLOW}Step 1: Updating system packages and installing camera/OpenCV dependencies...${NC}"
+echo -e "${YELLOW}Step 1: Updating system packages...${NC}"
 sudo apt-get update
-sudo apt-get install -y python3-pip python3-venv git \
-    libcap-dev \
-    libatlas-base-dev \
-    libjasper-dev \
-    libharfbuzz0b \
-    libwebp6 \
-    libtiff5 \
-    libopenjp2-7 \
-    libhdf5-dev \
-    libharfbuzz-dev \
-    libwebp-dev \
-    libjasper-dev \
-    libtiff-dev \
-    libjpeg-dev \
-    libopenjp2-7-dev
+sudo apt-get install -y python3-pip python3-venv git python3-dev
+
+# Install camera libraries (if available on this OS version)
+sudo apt-get install -y libopenjp2-7 libtiff5 libwebp7 libharfbuzz0b libopenjp2-7 libjasper1 2>/dev/null || true
 
 echo -e "${GREEN}✓ System packages updated${NC}"
 echo ""
@@ -78,7 +67,10 @@ echo ""
 echo -e "${YELLOW}Step 3: Installing Python dependencies...${NC}"
 source "$PROJECT_DIR/venv/bin/activate"
 pip install --upgrade pip setuptools wheel
-pip install -r "$PROJECT_DIR/requirements.txt"
+
+# Use piwheels for pre-built wheels (much faster on Raspberry Pi)
+pip install -i https://www.piwheels.org/simple --extra-index-url https://pypi.org/simple -r "$PROJECT_DIR/requirements.txt"
+
 echo -e "${GREEN}✓ Python dependencies installed${NC}"
 echo ""
 
