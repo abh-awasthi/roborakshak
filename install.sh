@@ -36,7 +36,7 @@ fi
 
 # Get script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$SCRIPT_DIR"
 
 echo -e "${GREEN}Project Directory: $PROJECT_DIR${NC}"
 echo -e "${GREEN}Installation User: $CURRENT_USER${NC}"

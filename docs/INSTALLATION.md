@@ -100,12 +100,8 @@ sudo reboot
 
 These are documented so behavior is clear without changing code in this pass.
 
-1. `install.sh` computes `PROJECT_DIR` as the parent of the script directory.
-   - Since `install.sh` is in repo root, this can point one level above the repo.
-   - Result: virtualenv/service paths can be incorrect unless the script location/layout matches this assumption.
-
-2. `config.ini` is present but not read by `backend/app.py`.
+1. `config.ini` is present but not read by `backend/app.py`.
    - Runtime values (GPIO pins, host, port, defaults) are currently hardcoded in code.
 
-3. Motor control implementation currently reflects the logic in `backend/app.py` exactly.
+2. Motor control implementation currently reflects the logic in `backend/app.py` exactly.
    - Wiring/behavior expectations should be validated on hardware before production use.
