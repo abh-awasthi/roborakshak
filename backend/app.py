@@ -100,7 +100,9 @@ RESTRICT_TO_LOCAL_NET = os.getenv('RESTRICT_TO_LOCAL_NET', '0').lower() in ('1',
 
 # Global variables
 left_pwm = None
+left_pwm_rev = None
 right_pwm = None
+right_pwm_rev = None
 motor_speed = 50
 motor_direction = "stop"
 current_left_duty = 0
@@ -229,13 +231,17 @@ def init_gpio():
         for pin in pins:
             GPIO.setup(pin, GPIO.OUT)
         
-        # Setup PWM
-        global left_pwm, right_pwm
+        # Setup PWM on both motor direction pins
+        global left_pwm, left_pwm_rev, right_pwm, right_pwm_rev
         left_pwm = GPIO.PWM(LEFT_MOTOR_PIN1, PWM_FREQUENCY)
+        left_pwm_rev = GPIO.PWM(LEFT_MOTOR_PIN2, PWM_FREQUENCY)
         right_pwm = GPIO.PWM(RIGHT_MOTOR_PIN1, PWM_FREQUENCY)
-        
+        right_pwm_rev = GPIO.PWM(RIGHT_MOTOR_PIN2, PWM_FREQUENCY)
+
         left_pwm.start(0)
+        left_pwm_rev.start(0)
         right_pwm.start(0)
+        right_pwm_rev.start(0)
         
         return True
     except Exception as e:
@@ -277,11 +283,15 @@ def stop_motors_locked():
     """Stop all motors"""
     global current_left_duty, current_right_duty
     try:
-        if left_pwm and right_pwm:
+        if left_pwm and left_pwm_rev and right_pwm and right_pwm_rev:
             GPIO.output(LEFT_MOTOR_PIN1, GPIO.LOW)
             GPIO.output(LEFT_MOTOR_PIN2, GPIO.LOW)
             GPIO.output(RIGHT_MOTOR_PIN1, GPIO.LOW)
             GPIO.output(RIGHT_MOTOR_PIN2, GPIO.LOW)
+            left_pwm.ChangeDutyCycle(0)
+            left_pwm_rev.ChangeDutyCycle(0)
+            right_pwm.ChangeDutyCycle(0)
+            right_pwm_rev.ChangeDutyCycle(0)
             if not MOCK_GPIO:
                 ramp_pwm_to(0, 0)
             else:
@@ -299,6 +309,8 @@ def move_forward():
     try:
         GPIO.output(LEFT_MOTOR_PIN2, GPIO.LOW)
         GPIO.output(RIGHT_MOTOR_PIN2, GPIO.LOW)
+        left_pwm_rev.ChangeDutyCycle(0)
+        right_pwm_rev.ChangeDutyCycle(0)
         ramp_pwm_to(motor_speed, motor_speed)
     except Exception as e:
         print(f"Forward Error: {e}")
@@ -308,15 +320,22 @@ def move_backward():
     try:
         GPIO.output(LEFT_MOTOR_PIN1, GPIO.LOW)
         GPIO.output(RIGHT_MOTOR_PIN1, GPIO.LOW)
-        ramp_pwm_to(motor_speed, motor_speed)
+        left_pwm.ChangeDutyCycle(0)
+        right_pwm.ChangeDutyCycle(0)
+        left_pwm_rev.ChangeDutyCycle(motor_speed)
+        right_pwm_rev.ChangeDutyCycle(motor_speed)
     except Exception as e:
         print(f"Backward Error: {e}")
 
 def turn_left():
     """Turn robot left"""
     try:
+        GPIO.output(LEFT_MOTOR_PIN1, GPIO.LOW)
         GPIO.output(LEFT_MOTOR_PIN2, GPIO.LOW)
-        GPIO.output(RIGHT_MOTOR_PIN1, GPIO.LOW)
+        GPIO.output(RIGHT_MOTOR_PIN2, GPIO.LOW)
+        left_pwm.ChangeDutyCycle(0)
+        left_pwm_rev.ChangeDutyCycle(0)
+        right_pwm_rev.ChangeDutyCycle(0)
         ramp_pwm_to(0, motor_speed)
     except Exception as e:
         print(f"Left Error: {e}")
@@ -324,11 +343,37 @@ def turn_left():
 def turn_right():
     """Turn robot right"""
     try:
-        GPIO.output(LEFT_MOTOR_PIN1, GPIO.LOW)
-        GPIO.output(RIGHT_MOTOR_PIN2, GPIO.LOW)
+        GPIO.output(LEFT_MOTOR_PIN2, GPIO.LOW)
+        GPIO.output(RIGHT_MOTOR_PIN1, GPIO.LOW)
+        left_pwm_rev.ChangeDutyCycle(0)
+        right_pwm.ChangeDutyCycle(0)
         ramp_pwm_to(motor_speed, 0)
     except Exception as e:
         print(f"Right Error: {e}")
+
+def rotate_left():
+    """Rotate robot left in place"""
+    try:
+        GPIO.output(LEFT_MOTOR_PIN1, GPIO.LOW)
+        GPIO.output(RIGHT_MOTOR_PIN2, GPIO.LOW)
+        left_pwm.ChangeDutyCycle(0)
+        left_pwm_rev.ChangeDutyCycle(motor_speed)
+        right_pwm.ChangeDutyCycle(motor_speed)
+        right_pwm_rev.ChangeDutyCycle(0)
+    except Exception as e:
+        print(f"Rotate Left Error: {e}")
+
+def rotate_right():
+    """Rotate robot right in place"""
+    try:
+        GPIO.output(LEFT_MOTOR_PIN2, GPIO.LOW)
+        GPIO.output(RIGHT_MOTOR_PIN1, GPIO.LOW)
+        left_pwm.ChangeDutyCycle(motor_speed)
+        left_pwm_rev.ChangeDutyCycle(0)
+        right_pwm.ChangeDutyCycle(0)
+        right_pwm_rev.ChangeDutyCycle(motor_speed)
+    except Exception as e:
+        print(f"Rotate Right Error: {e}")
 
 def deadman_monitor():
     """Auto-stop when no motion command is received for timeout window."""
@@ -603,6 +648,30 @@ def right():
     add_audit('motor_right', 'driver')
     add_event('motor', 'Turned right', 'info')
     return jsonify({'status': 'turning right', 'speed': motor_speed})
+
+@app.route('/api/motor/rotate/left', methods=['POST'])
+@require_auth('driver')
+def rotate_left_route():
+    global motor_direction
+    with lock:
+        mark_motion_command()
+        motor_direction = "rotate_left"
+        rotate_left()
+    add_audit('motor_rotate_left', 'driver')
+    add_event('motor', 'Rotated left', 'info')
+    return jsonify({'status': 'rotating left', 'speed': motor_speed})
+
+@app.route('/api/motor/rotate/right', methods=['POST'])
+@require_auth('driver')
+def rotate_right_route():
+    global motor_direction
+    with lock:
+        mark_motion_command()
+        motor_direction = "rotate_right"
+        rotate_right()
+    add_audit('motor_rotate_right', 'driver')
+    add_event('motor', 'Rotated right', 'info')
+    return jsonify({'status': 'rotating right', 'speed': motor_speed})
 
 @app.route('/api/motor/stop', methods=['POST'])
 @require_auth('driver')

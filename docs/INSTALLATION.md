@@ -18,7 +18,24 @@ The installer currently does the following:
 - enables and starts `roborakshak.service`
 - creates `INSTALLATION_COMMANDS.md`
 
-## Run Locally (Without systemd)
+## Local Development (Mock Run)
+
+Use mock GPIO when you are developing on a laptop or a machine without Raspberry Pi hardware.
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+FORCE_MOCK=1 python3 backend/app.py
+```
+
+The app will run in mock mode and log GPIO actions instead of driving motors.
+
+Open `http://localhost:5000`.
+
+## Raspberry Pi / Actual Run
+
+On the Pi, install dependencies and run without forcing mock mode:
 
 ```bash
 python3 -m venv venv
@@ -27,7 +44,13 @@ pip install -r requirements.txt
 python3 backend/app.py
 ```
 
-Open `http://localhost:5000`.
+Or use the installer for automatic service setup:
+
+```bash
+sudo bash install.sh
+```
+
+Do not set `FORCE_MOCK` on the actual robot unless you specifically want a dry-run.
 
 ## FORCE_MOCK Behavior
 
@@ -66,6 +89,8 @@ sudo systemctl restart roborakshak.service
 - `POST /api/motor/backward`
 - `POST /api/motor/left`
 - `POST /api/motor/right`
+- `POST /api/motor/rotate/left`
+- `POST /api/motor/rotate/right`
 - `POST /api/motor/stop`
 - `POST /api/motor/speed/<int:speed>`
 - `GET /api/status`
