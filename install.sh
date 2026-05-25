@@ -45,10 +45,10 @@ echo ""
 # Step 1: Update system packages
 echo -e "${YELLOW}Step 1: Updating system packages...${NC}"
 sudo apt-get update
-sudo apt-get install -y python3-pip python3-venv git python3-dev
+sudo apt-get install -y python3-pip python3-venv git python3-dev libcap-dev
 
-# Install camera libraries (if available on this OS version)
-sudo apt-get install -y libopenjp2-7 libtiff5 libwebp7 libharfbuzz0b libopenjp2-7 libjasper1 2>/dev/null || true
+# Install optional camera libraries (if available on this OS version)
+sudo apt-get install -y libopenjp2-7 libtiff5 libwebp7 libharfbuzz0b libjasper1 2>/dev/null || true
 
 echo -e "${GREEN}✓ System packages updated${NC}"
 echo ""
