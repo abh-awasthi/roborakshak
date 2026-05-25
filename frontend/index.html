@@ -4,12 +4,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RoboRakshak - Motor Control</title>
+    <meta name="theme-color" content="#1f6feb">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="RoboRakshak">
+    <link rel="manifest" href="/static/manifest.webmanifest">
+    <link rel="icon" href="/static/icons/app-icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+    <div class="auth-overlay" id="authOverlay">
+        <div class="auth-card">
+            <h2>Secure Access</h2>
+            <p>Enter PIN to continue.</p>
+            <input id="pinInput" type="password" inputmode="numeric" placeholder="PIN" maxlength="8" />
+            <button id="loginBtn" type="button">Sign In</button>
+            <p class="auth-error" id="authError">Invalid PIN</p>
+        </div>
+    </div>
+
+    <button class="emergency-fab" id="emergencyFab" type="button" title="Emergency Stop">E-STOP</button>
     <div class="container">
         <header>
-            <h1>🤖 RoboRakshak Control Panel</h1>
+            <h1>RoboRakshak Field Console</h1>
             <div class="status-bar">
                 <div class="status-item">
                     <span class="label">Status:</span>
@@ -23,12 +40,60 @@
                     <span class="label">Direction:</span>
                     <span class="value" id="directionValue">Stopped</span>
                 </div>
+                <div class="status-item">
+                    <span class="label">Role:</span>
+                    <span class="value" id="roleValue">Guest</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Network:</span>
+                    <span class="value" id="networkQuality">Unknown</span>
+                </div>
             </div>
         </header>
 
+        <nav class="tab-bar" aria-label="Primary views">
+            <button class="tab-btn active" id="controlTabBtn" data-tab="controlPanel" type="button">Control</button>
+            <button class="tab-btn" id="cameraTabBtn" data-tab="cameraPanel" type="button">Camera</button>
+            <button class="tab-btn" id="diagTabBtn" data-tab="diagPanel" type="button">Diagnostics</button>
+        </nav>
+
         <main>
-            <section class="control-section">
+            <section class="control-section tab-panel active" id="controlPanel">
                 <h2>Motor Control</h2>
+
+                <div class="drive-profile">
+                    <h3>Drive Profile</h3>
+                    <div class="profile-segment">
+                        <button type="button" class="profile-btn active" data-profile="indoor">Indoor</button>
+                        <button type="button" class="profile-btn" data-profile="outdoor">Outdoor</button>
+                        <button type="button" class="profile-btn" data-profile="test">Test</button>
+                    </div>
+                    <p class="profile-note" id="profileNote">Indoor profile active: smoother, lower speed.</p>
+                </div>
+
+                <div class="joystick-section">
+                    <h3>Joystick Mode</h3>
+                    <div class="joystick-wrap">
+                        <div class="joystick-base" id="joystickBase">
+                            <div class="joystick-knob" id="joystickKnob"></div>
+                        </div>
+                        <p class="joystick-help">Press and drag. Release to stop.</p>
+                    </div>
+                </div>
+
+                <div class="feedback-section">
+                    <h3>Control Feedback</h3>
+                    <div class="feedback-grid">
+                        <label class="feedback-toggle">
+                            <input type="checkbox" id="hapticToggle" checked>
+                            <span>Haptic</span>
+                        </label>
+                        <label class="feedback-toggle">
+                            <input type="checkbox" id="soundToggle">
+                            <span>Sound</span>
+                        </label>
+                    </div>
+                </div>
                 
                 <!-- Direction Control -->
                 <div class="direction-control">
@@ -88,19 +153,73 @@
                 </div>
             </section>
 
+            <section class="camera-section tab-panel" id="cameraPanel">
+                <h2>Camera</h2>
+                <div class="camera-card">
+                    <div class="camera-feed-placeholder">
+                        <span class="camera-badge">Camera Feed</span>
+                        <p>Camera module pending. This panel is ready for live stream integration.</p>
+                        <p><strong>State:</strong> <span id="cameraStateValue">Not Connected</span></p>
+                        <p><strong>Last Snapshot:</strong> <span id="cameraSnapshotValue">Never</span></p>
+                    </div>
+                    <div class="camera-actions">
+                        <button class="preset-btn" type="button" id="cameraReadyBtn">Mark Ready</button>
+                        <button class="preset-btn" type="button" id="cameraStartBtn">Start Stream</button>
+                        <button class="preset-btn" type="button" id="cameraStopBtn">Stop Stream</button>
+                        <button class="preset-btn" type="button" id="cameraSnapshotBtn">Snapshot</button>
+                        <button class="preset-btn" type="button" id="cameraRefreshBtn">Refresh Status</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="diag-section tab-panel" id="diagPanel">
+                <h2>Diagnostics</h2>
+                <div class="diag-actions">
+                    <button class="preset-btn" type="button" id="refreshDiagBtn">Refresh Diagnostics</button>
+                    <button class="preset-btn" type="button" id="exportAuditBtn">Export Audit JSON</button>
+                    <button class="preset-btn" type="button" id="mockEventBtn">Add Mock Event</button>
+                    <button class="preset-btn" type="button" id="clearEventsBtn">Clear Events</button>
+                </div>
+                <div class="timeline-filters">
+                    <label for="severityFilter">Severity</label>
+                    <select id="severityFilter">
+                        <option value="all">All</option>
+                        <option value="info">Info</option>
+                        <option value="warning">Warning</option>
+                        <option value="critical">Critical</option>
+                    </select>
+                </div>
+                <div class="diag-grid">
+                    <div class="diag-card">
+                        <h3>Health</h3>
+                        <pre id="healthPayload" class="diag-pre">No data yet.</pre>
+                    </div>
+                    <div class="diag-card">
+                        <h3>Recent Audit</h3>
+                        <pre id="auditPayload" class="diag-pre">No data yet.</pre>
+                    </div>
+                </div>
+                <div class="timeline-card">
+                    <h3>Security Timeline</h3>
+                    <ul id="eventTimeline" class="event-timeline">
+                        <li class="event-item">No events yet.</li>
+                    </ul>
+                </div>
+            </section>
+
             <section class="info-section">
                 <h3>Connection Info</h3>
                 <div class="info-box">
                     <p><strong>Host:</strong> <span id="hostInfo">localhost:5000</span></p>
                     <p><strong>Last Command:</strong> <span id="lastCommand">None</span></p>
                     <p><strong>Connection Status:</strong> <span id="connectionStatus" class="status-connected">Connected</span></p>
+                    <p><strong>Latency:</strong> <span id="latencyValue">-- ms</span></p>
+                    <p><strong>Session:</strong> <button id="logoutBtn" type="button" class="mini-btn">Logout</button></p>
                 </div>
             </section>
         </main>
 
-        <footer>
-            <p>&copy; 2026 RoboRakshak Project | AI-Powered Home Security Robot</p>
-        </footer>
+        <footer><p>&copy; 2026 RoboRakshak</p></footer>
     </div>
 
     <script src="/static/script.js"></script>
