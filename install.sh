@@ -43,9 +43,24 @@ echo -e "${GREEN}Installation User: $CURRENT_USER${NC}"
 echo ""
 
 # Step 1: Update system packages
-echo -e "${YELLOW}Step 1: Updating system packages...${NC}"
+echo -e "${YELLOW}Step 1: Updating system packages and installing camera/OpenCV dependencies...${NC}"
 sudo apt-get update
-sudo apt-get install -y python3-pip python3-venv git
+sudo apt-get install -y python3-pip python3-venv git \
+    libcap-dev \
+    libatlas-base-dev \
+    libjasper-dev \
+    libharfbuzz0b \
+    libwebp6 \
+    libtiff5 \
+    libopenjp2-7 \
+    libhdf5-dev \
+    libharfbuzz-dev \
+    libwebp-dev \
+    libjasper-dev \
+    libtiff-dev \
+    libjpeg-dev \
+    libopenjp2-7-dev
+
 echo -e "${GREEN}✓ System packages updated${NC}"
 echo ""
 
@@ -211,8 +226,9 @@ echo -e "${GREEN}Installation Complete!${NC}"
 echo "=========================================="
 echo ""
 echo "📝 Summary:"
+echo "  - System camera/OpenCV libraries installed"
 echo "  - Python virtual environment created"
-echo "  - Dependencies installed"
+echo "  - Dependencies installed (motor control + camera)"
 echo "  - Systemd service configured"
 echo "  - Service set to auto-start on boot"
 echo ""
