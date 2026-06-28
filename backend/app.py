@@ -68,6 +68,13 @@ try:
 except Exception:
     cv2 = None
     OPENCV_AVAILABLE = False
+# picamera2 (libcamera) support for Raspberry Pi CSI cameras
+try:
+    from picamera2 import Picamera2
+    PICAMERA2_AVAILABLE = True
+except Exception:
+    Picamera2 = None
+    PICAMERA2_AVAILABLE = False
 
 # FORCE_MOCK env var (set to 1/true/yes to force mock GPIO even on Raspberry Pi)
 FORCE_MOCK = os.getenv('FORCE_MOCK', '').lower() in ('1', 'true', 'yes')
@@ -508,11 +515,30 @@ def test_camera_connection():
 
 
 def get_camera_capture():
-    if not OPENCV_AVAILABLE or not CAMERA_ENABLED:
+    # Prefer Picamera2 (libcamera) for CSI cameras, fall back to OpenCV VideoCapture
+    if not CAMERA_ENABLED:
+        return None
+    if PICAMERA2_AVAILABLE:
+        try:
+            picam = Picamera2()
+            cfg = picam.create_preview_configuration({'main': {'size': parse_camera_resolution(CAMERA_RESOLUTION)}})
+            picam.configure(cfg)
+            picam.start()
+            return picam
+        except Exception:
+            try:
+                picam.close()
+            except Exception:
+                pass
+            # fall through to OpenCV
+    if not OPENCV_AVAILABLE:
         return None
     cap = cv2.VideoCapture(CAMERA_DEVICE_INDEX)
     if not cap.isOpened():
-        cap.release()
+        try:
+            cap.release()
+        except Exception:
+            pass
         return None
     width, height = parse_camera_resolution(CAMERA_RESOLUTION)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
@@ -525,19 +551,49 @@ def generate_camera_frames():
     if cap is None:
         return
     try:
-        while camera_state == 'streaming':
-            ret, frame = cap.read()
-            if not ret or frame is None:
-                break
-            ret, jpeg = cv2.imencode('.jpg', frame)
-            if not ret:
-                break
-            frame_bytes = jpeg.tobytes()
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-            time.sleep(0.05)
-    finally:
-        cap.release()
+        if PICAMERA2_AVAILABLE and isinstance(cap, Picamera2):
+            picam = cap
+            try:
+                while camera_state == 'streaming':
+                    frame = picam.capture_array()
+                    if frame is None:
+                        break
+                    ret, jpeg = cv2.imencode('.jpg', frame)
+                    if not ret:
+                        break
+                    frame_bytes = jpeg.tobytes()
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                    time.sleep(0.05)
+            finally:
+                try:
+                    picam.stop()
+                    picam.close()
+                except Exception:
+                    pass
+        else:
+            # OpenCV capture
+            cap_cv = cap
+            try:
+                while camera_state == 'streaming':
+                    ret, frame = cap_cv.read()
+                    if not ret or frame is None:
+                        break
+                    ret, jpeg = cv2.imencode('.jpg', frame)
+                    if not ret:
+                        break
+                    frame_bytes = jpeg.tobytes()
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                    time.sleep(0.05)
+            finally:
+                try:
+                    cap_cv.release()
+                except Exception:
+                    pass
+    except GeneratorExit:
+        # Stream closed by client
+        pass
 
 
 # Routes
