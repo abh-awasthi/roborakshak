@@ -487,6 +487,25 @@ def parse_camera_resolution(resolution):
     except Exception:
         return 1920, 1080
 
+
+def encode_frame_as_jpeg(frame):
+    if frame is None:
+        return None
+    try:
+        if frame.ndim == 3 and frame.shape[2] == 4:
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
+        elif frame.ndim == 3 and frame.shape[2] == 1:
+            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+        elif frame.ndim == 2:
+            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+        ok, jpeg = cv2.imencode('.jpg', frame)
+        if not ok:
+            return None
+        return jpeg.tobytes()
+    except Exception:
+        return None
+
+
 def test_camera_connection():
     if not CAMERA_ENABLED:
         return False, 'Camera support is disabled (CAMERA_ENABLED=false)'
@@ -593,10 +612,9 @@ def generate_camera_frames():
                     frame = picam.capture_array()
                     if frame is None:
                         break
-                    ret, jpeg = cv2.imencode('.jpg', frame)
-                    if not ret:
+                    frame_bytes = encode_frame_as_jpeg(frame)
+                    if frame_bytes is None:
                         break
-                    frame_bytes = jpeg.tobytes()
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
                     time.sleep(0.05)
