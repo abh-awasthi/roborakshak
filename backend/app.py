@@ -521,7 +521,9 @@ def get_camera_capture():
     if PICAMERA2_AVAILABLE:
         try:
             picam = Picamera2()
-            cfg = picam.create_preview_configuration({'main': {'size': parse_camera_resolution(CAMERA_RESOLUTION)}})
+            # picamera2 expects stream configuration keys like 'format' and 'size'
+            width, height = parse_camera_resolution(CAMERA_RESOLUTION)
+            cfg = picam.create_preview_configuration({'format': 'XRGB8888', 'size': (width, height)})
             picam.configure(cfg)
             picam.start()
             return picam
