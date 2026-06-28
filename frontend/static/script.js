@@ -1058,6 +1058,9 @@ class RoboRakshakController {
     renderCameraState(state, snapshotTs) {
         const stateEl = document.getElementById('cameraStateValue');
         const snapEl = document.getElementById('cameraSnapshotValue');
+        const feedEl = document.getElementById('cameraFeed');
+        const hintEl = document.getElementById('cameraFeedHint');
+
         if (stateEl) {
             const labels = {
                 not_connected: 'Not Connected',
@@ -1068,6 +1071,24 @@ class RoboRakshakController {
         }
         if (snapEl) {
             snapEl.textContent = snapshotTs ? new Date(snapshotTs * 1000).toLocaleString() : 'Never';
+        }
+
+        if (state === 'streaming' && feedEl) {
+            feedEl.style.display = 'block';
+            feedEl.src = `${this.baseURL}/api/camera/stream?ts=${Date.now()}`;
+            if (hintEl) {
+                hintEl.textContent = 'Live camera stream active.';
+            }
+        } else {
+            if (feedEl) {
+                feedEl.style.display = 'none';
+                feedEl.src = '';
+            }
+            if (hintEl) {
+                hintEl.textContent = state === 'ready'
+                    ? 'Camera is ready. Start the stream to view live footage.'
+                    : 'Start the stream to view live camera footage here.';
+            }
         }
     }
 

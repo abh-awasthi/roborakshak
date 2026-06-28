@@ -441,6 +441,40 @@ def test_camera_connection():
         if cap is not None:
             cap.release()
 
+
+def get_camera_capture():
+    if not OPENCV_AVAILABLE or not CAMERA_ENABLED:
+        return None
+    cap = cv2.VideoCapture(CAMERA_DEVICE_INDEX)
+    if not cap.isOpened():
+        cap.release()
+        return None
+    width, height = parse_camera_resolution(CAMERA_RESOLUTION)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    return cap
+
+
+def generate_camera_frames():
+    cap = get_camera_capture()
+    if cap is None:
+        return
+    try:
+        while camera_state == 'streaming':
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                break
+            ret, jpeg = cv2.imencode('.jpg', frame)
+            if not ret:
+                break
+            frame_bytes = jpeg.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            time.sleep(0.05)
+    finally:
+        cap.release()
+
+
 # Routes
 @app.route('/')
 def home():
@@ -663,6 +697,16 @@ def camera_test():
         })
     add_event('camera', f'Camera test failed: {message}', 'warning')
     return jsonify({'error': 'camera_test_failed', 'message': message}), 500
+
+
+@app.route('/api/camera/stream')
+@require_auth('viewer')
+def camera_stream():
+    if camera_state != 'streaming':
+        return jsonify({'error': 'camera_not_streaming'}), 400
+    if not OPENCV_AVAILABLE or not CAMERA_ENABLED:
+        return jsonify({'error': 'camera_unavailable'}), 503
+    return Response(generate_camera_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/api/motor/forward', methods=['POST'])
 @require_auth('driver')
