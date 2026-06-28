@@ -183,6 +183,7 @@ RATE_LIMIT_WINDOW_SEC = int(os.getenv('RATE_LIMIT_WINDOW_SEC', '10'))
 RATE_LIMIT_MAX_REQUESTS = int(os.getenv('RATE_LIMIT_MAX_REQUESTS', '40'))
 RESTRICT_TO_LOCAL_NET = os.getenv('RESTRICT_TO_LOCAL_NET', '0').lower() in ('1', 'true', 'yes')
 CAMERA_ENABLED = _env_or_ini_bool('CAMERA_ENABLED', True)
+CAMERA_DRIVER = _env_or_ini_value('CAMERA_DRIVER', 'auto').strip().lower()
 CAMERA_DEVICE = _env_or_ini_value('CAMERA_DEVICE', _env_or_ini_value('CAMERA_DEVICE_INDEX', '0'))
 CAMERA_RESOLUTION = _env_or_ini_value('CAMERA_RESOLUTION', '1920x1080')
 CAMERA_WARMUP_SECONDS = _env_or_ini_float('CAMERA_WARMUP_SECONDS', 1.5)
@@ -646,6 +647,30 @@ def get_opencv_capture_with_frame():
     return None, None, last_message
 
 
+def get_picamera2_capture():
+    if not PICAMERA2_AVAILABLE:
+        return None, 'Picamera2 is not available in this Python environment'
+
+    picam = None
+    try:
+        picam = Picamera2()
+        width, height = parse_camera_resolution(CAMERA_RESOLUTION)
+        cfg = picam.create_preview_configuration(
+            main={'format': 'XRGB8888', 'size': (width, height)}
+        )
+        picam.configure(cfg)
+        picam.start()
+        time.sleep(max(CAMERA_WARMUP_SECONDS, 0.2))
+        return picam, None
+    except Exception as exc:
+        try:
+            if picam is not None:
+                picam.close()
+        except Exception:
+            pass
+        return None, str(exc)
+
+
 def encode_frame_as_jpeg(frame):
     if frame is None:
         return None
@@ -668,37 +693,34 @@ def test_camera_connection():
     if not CAMERA_ENABLED:
         return False, 'Camera support is disabled (CAMERA_ENABLED=false)'
 
-    # Try Picamera2 first for CSI cameras
-    if PICAMERA2_AVAILABLE:
-        picam = None
-        try:
-            picam = Picamera2()
-            width, height = parse_camera_resolution(CAMERA_RESOLUTION)
-            cfg = picam.create_preview_configuration({'format': 'XRGB8888', 'size': (width, height)})
-            picam.configure(cfg)
-            picam.start()
-            time.sleep(0.2)
-            frame = picam.capture_array()
+    if CAMERA_DRIVER not in ('auto', 'picamera2', 'opencv'):
+        return False, f'Unsupported CAMERA_DRIVER={CAMERA_DRIVER}'
+
+    picamera2_error = None
+    if CAMERA_DRIVER in ('auto', 'picamera2'):
+        picam, picamera2_error = get_picamera2_capture()
+        if picam is not None:
+            try:
+                frame = picam.capture_array()
+            finally:
+                release_camera_capture(picam)
             if frame is None:
-                print('[CAMERA] picamera2 test opened camera but captured no frame')
+                picamera2_error = 'Picamera2 opened the camera but captured no frame'
             else:
                 return True, f'Camera connected (picamera2), frame captured ({frame.shape[1]}x{frame.shape[0]})'
-        except Exception as exc:
-            print('[CAMERA] picamera2 test failed:', exc)
-            traceback.print_exc()
-            # fall through to OpenCV fallback
-        finally:
-            try:
-                if picam is not None:
-                    picam.stop()
-                    picam.close()
-            except Exception:
-                pass
+        print('[CAMERA] picamera2 test failed:', picamera2_error)
+        if CAMERA_DRIVER == 'picamera2':
+            return False, f'Failed to capture a frame from the camera (picamera2): {picamera2_error}'
 
     cap = None
     try:
         cap, frame, message = get_opencv_capture_with_frame()
         if frame is None:
+            if picamera2_error:
+                return False, (
+                    f'Failed to capture a frame from the camera. '
+                    f'Picamera2 failed: {picamera2_error}; OpenCV failed: {message}'
+                )
             return False, f'Failed to capture a frame from the camera (opencv): {message}'
         return True, f'Camera connected (opencv), frame captured ({message})'
     except Exception as exc:
@@ -711,23 +733,18 @@ def get_camera_capture():
     # Prefer Picamera2 (libcamera) for CSI cameras, fall back to OpenCV VideoCapture
     if not CAMERA_ENABLED:
         return None
-    if PICAMERA2_AVAILABLE:
-        try:
-            picam = Picamera2()
-            # picamera2 expects stream configuration keys like 'format' and 'size'
-            width, height = parse_camera_resolution(CAMERA_RESOLUTION)
-            cfg = picam.create_preview_configuration({'format': 'XRGB8888', 'size': (width, height)})
-            picam.configure(cfg)
-            picam.start()
+    if CAMERA_DRIVER in ('auto', 'picamera2'):
+        picam, message = get_picamera2_capture()
+        if picam is not None:
             return picam
-        except Exception as exc:
-            print('[CAMERA] picamera2 capture initialization failed:', exc)
-            traceback.print_exc()
-            try:
-                picam.close()
-            except Exception:
-                pass
-            # fall through to OpenCV
+        print('[CAMERA] picamera2 capture initialization failed:', message)
+        if CAMERA_DRIVER == 'picamera2':
+            return None
+
+    if CAMERA_DRIVER not in ('auto', 'opencv'):
+        print('[CAMERA] Unsupported CAMERA_DRIVER:', CAMERA_DRIVER)
+        return None
+
     cap, frame, message = get_opencv_capture_with_frame()
     if cap is None:
         print('[CAMERA] OpenCV capture initialization failed:', message)
