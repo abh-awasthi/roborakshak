@@ -74,12 +74,26 @@ pip install -i https://www.piwheels.org/simple --extra-index-url https://pypi.or
 echo -e "${GREEN}✓ Python dependencies installed${NC}"
 echo ""
 
-# Step 4: Create systemd service file
-echo -e "${YELLOW}Step 4: Creating systemd service...${NC}"
+# Step 4: Create startup wrapper and systemd service file
+echo -e "${YELLOW}Step 4: Creating startup wrapper and systemd service...${NC}"
 SERVICE_FILE="/etc/systemd/system/roborakshak.service"
+START_SCRIPT="$PROJECT_DIR/start.sh"
 
 sudo mkdir -p /var/log/roborakshak
 sudo chown -R "$CURRENT_USER":"$(id -gn "$CURRENT_USER")" /var/log/roborakshak 2>/dev/null || true
+
+cat > "$START_SCRIPT" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+if [ -f "$SCRIPT_DIR/venv/bin/activate" ]; then
+  # shellcheck disable=SC1091
+  source "$SCRIPT_DIR/venv/bin/activate"
+fi
+exec python3 -u "$SCRIPT_DIR/backend/app.py"
+EOF
+chmod +x "$START_SCRIPT"
 
 sudo tee "$SERVICE_FILE" > /dev/null << EOF
 [Unit]
@@ -91,12 +105,12 @@ Wants=network-online.target
 Type=simple
 User=$CURRENT_USER
 WorkingDirectory=$PROJECT_DIR
-Environment="PATH=$PROJECT_DIR/venv/bin"
+Environment="PATH=$PROJECT_DIR/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="PYTHONPATH=$PROJECT_DIR"
 Environment="PYTHONUNBUFFERED=1"
 Environment="FORCE_MOCK=0"
 Environment="CAMERA_ENABLED=1"
-ExecStart=$PROJECT_DIR/venv/bin/python3 -u $PROJECT_DIR/backend/app.py
+ExecStart=$START_SCRIPT
 Restart=always
 RestartSec=10
 StartLimitIntervalSec=60
