@@ -187,6 +187,7 @@ CAMERA_DEVICE = _env_or_ini_value('CAMERA_DEVICE', _env_or_ini_value('CAMERA_DEV
 CAMERA_RESOLUTION = _env_or_ini_value('CAMERA_RESOLUTION', '1920x1080')
 CAMERA_WARMUP_SECONDS = _env_or_ini_float('CAMERA_WARMUP_SECONDS', 1.5)
 CAMERA_READ_ATTEMPTS = _env_or_ini_int('CAMERA_READ_ATTEMPTS', 12)
+CAMERA_OPENCV_FOURCCS = _env_or_ini_value('CAMERA_OPENCV_FOURCCS', 'DEFAULT,MJPG,YUYV')
 
 # Global variables
 left_pwm = None
@@ -513,6 +514,22 @@ def get_camera_device_source():
     return value
 
 
+def get_camera_device_sources():
+    source = get_camera_device_source()
+    sources = [source]
+    if isinstance(source, int) and os.name == 'posix':
+        for candidate in [
+            f'/dev/video{source}',
+            source + 1,
+            f'/dev/video{source + 1}',
+            source + 2,
+            f'/dev/video{source + 2}',
+        ]:
+            if candidate not in sources:
+                sources.append(candidate)
+    return sources
+
+
 def release_camera_capture(cap):
     if cap is None:
         return
@@ -536,23 +553,57 @@ def requested_and_fallback_resolutions():
     return unique
 
 
-def open_opencv_capture(width, height):
-    source = get_camera_device_source()
-    backends = [None]
+def opencv_backend_candidates():
+    backends = [(None, 'AUTO')]
     if hasattr(cv2, 'CAP_V4L2') and os.name == 'posix':
-        backends.insert(0, cv2.CAP_V4L2)
+        backends.insert(0, (cv2.CAP_V4L2, 'V4L2'))
+    return backends
 
-    for backend in backends:
-        cap = cv2.VideoCapture(source) if backend is None else cv2.VideoCapture(source, backend)
-        if not cap.isOpened():
-            release_camera_capture(cap)
+
+def opencv_fourcc_candidates():
+    candidates = []
+    for raw_item in str(CAMERA_OPENCV_FOURCCS).split(','):
+        item = raw_item.strip().upper()
+        if not item:
             continue
-        if hasattr(cv2, 'CAP_PROP_FOURCC'):
-            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        if item in ('DEFAULT', 'NONE', 'AUTO'):
+            candidate = (None, 'DEFAULT')
+        elif len(item) == 4:
+            candidate = (item, item)
+        else:
+            continue
+        if candidate not in candidates:
+            candidates.append(candidate)
+    if not candidates:
+        candidates.append((None, 'DEFAULT'))
+    return candidates
+
+
+def describe_opencv_capture(source, backend_name, fourcc_name, width, height):
+    return f'source={source} backend={backend_name} format={fourcc_name} requested={width}x{height}'
+
+
+def open_opencv_capture(source, backend, backend_name, fourcc, fourcc_name, width, height):
+    try:
+        cap = cv2.VideoCapture(source) if backend is None else cv2.VideoCapture(source, backend)
+    except Exception:
+        return None
+
+    if not cap.isOpened():
+        release_camera_capture(cap)
+        return None
+
+    if hasattr(cv2, 'CAP_PROP_BUFFERSIZE'):
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    if fourcc and hasattr(cv2, 'CAP_PROP_FOURCC'):
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*fourcc))
+    if width > 0:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    if height > 0:
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        return cap
-    return None
+
+    print('[CAMERA] OpenCV opened', describe_opencv_capture(source, backend_name, fourcc_name, width, height))
+    return cap
 
 
 def read_opencv_frame(cap):
@@ -562,6 +613,13 @@ def read_opencv_frame(cap):
         ret, frame = cap.read()
         if ret and frame is not None:
             return frame
+        try:
+            if cap.grab():
+                ret, frame = cap.retrieve()
+                if ret and frame is not None:
+                    return frame
+        except Exception:
+            pass
         if time.monotonic() < deadline:
             time.sleep(0.1)
     return None
@@ -571,17 +629,20 @@ def get_opencv_capture_with_frame():
     if not OPENCV_AVAILABLE:
         return None, None, 'OpenCV is not available on the server'
 
-    source = get_camera_device_source()
-    last_message = f'Unable to open camera device {source}'
-    for width, height in requested_and_fallback_resolutions():
-        cap = open_opencv_capture(width, height)
-        if cap is None:
-            continue
-        frame = read_opencv_frame(cap)
-        if frame is not None:
-            return cap, frame, f'{frame.shape[1]}x{frame.shape[0]}'
-        release_camera_capture(cap)
-        last_message = f'Opened camera device {source}, but could not read a frame at {width}x{height}'
+    last_message = f'Unable to open camera device {get_camera_device_source()}'
+    for source in get_camera_device_sources():
+        for width, height in requested_and_fallback_resolutions():
+            for fourcc, fourcc_name in opencv_fourcc_candidates():
+                for backend, backend_name in opencv_backend_candidates():
+                    descriptor = describe_opencv_capture(source, backend_name, fourcc_name, width, height)
+                    cap = open_opencv_capture(source, backend, backend_name, fourcc, fourcc_name, width, height)
+                    if cap is None:
+                        continue
+                    frame = read_opencv_frame(cap)
+                    if frame is not None:
+                        return cap, frame, f'{frame.shape[1]}x{frame.shape[0]} ({descriptor})'
+                    release_camera_capture(cap)
+                    last_message = f'Opened camera ({descriptor}), but could not read a frame'
     return None, None, last_message
 
 
