@@ -89,9 +89,11 @@ except Exception:
 try:
     from picamera2 import Picamera2
     PICAMERA2_AVAILABLE = True
+    PICAMERA2_IMPORT_ERROR = None
 except Exception:
     Picamera2 = None
     PICAMERA2_AVAILABLE = False
+    PICAMERA2_IMPORT_ERROR = traceback.format_exc()
 
 # FORCE_MOCK env var (set to 1/true/yes to force mock GPIO even on Raspberry Pi)
 FORCE_MOCK = os.getenv('FORCE_MOCK', '').lower() in ('1', 'true', 'yes')
@@ -649,7 +651,10 @@ def get_opencv_capture_with_frame():
 
 def get_picamera2_capture():
     if not PICAMERA2_AVAILABLE:
-        return None, 'Picamera2 is not available in this Python environment'
+        message = 'Picamera2 is not available in this Python environment'
+        if PICAMERA2_IMPORT_ERROR:
+            message = f'{message}: {PICAMERA2_IMPORT_ERROR.strip().splitlines()[-1]}'
+        return None, message
 
     picam = None
     try:
