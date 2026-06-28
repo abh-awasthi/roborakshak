@@ -7,13 +7,13 @@
 - Motor movement working
 - L298N integration
 - Battery setup
+- Camera feed, snapshots, and motion detection
 
 ## In Progress
-- Pi Camera setup
-- Video streaming
+- Motion detection tuning on real hardware
 
 ## Upcoming
-1. Camera feed
-2. Motion detection
+1. Person detection
+2. External alert notifications
 3. AI security
 4. Mobile app

@@ -193,6 +193,12 @@ CAMERA_RESOLUTION = _env_or_ini_value('CAMERA_RESOLUTION', '1920x1080')
 CAMERA_WARMUP_SECONDS = _env_or_ini_float('CAMERA_WARMUP_SECONDS', 1.5)
 CAMERA_READ_ATTEMPTS = _env_or_ini_int('CAMERA_READ_ATTEMPTS', 12)
 CAMERA_OPENCV_FOURCCS = _env_or_ini_value('CAMERA_OPENCV_FOURCCS', 'DEFAULT,MJPG,YUYV')
+MOTION_DETECTION_DEFAULT = _env_or_ini_bool('MOTION_DETECTION_ENABLED', False)
+MOTION_SENSITIVITY = max(1, min(10, _env_or_ini_int('MOTION_SENSITIVITY', 5)))
+MOTION_MIN_AREA = max(1, _env_or_ini_int('MOTION_MIN_AREA', 500))
+MOTION_COOLDOWN_SEC = max(1.0, _env_or_ini_float('MOTION_COOLDOWN_SEC', 10.0))
+MOTION_PROCESS_INTERVAL_SEC = max(0.05, _env_or_ini_float('MOTION_PROCESS_INTERVAL_SEC', 0.2))
+MOTION_STABILIZE_SEC = max(0.0, _env_or_ini_float('MOTION_STABILIZE_SEC', 2.0))
 
 # Global variables
 left_pwm = None
@@ -210,12 +216,21 @@ camera_state = "not_connected"
 camera_last_snapshot = None
 camera_last_snapshot_url = None
 camera_latest_frame_bytes = None
+motion_detection_enabled = MOTION_DETECTION_DEFAULT
+motion_last_detected_at = None
+motion_last_snapshot_url = None
+motion_detection_count = 0
+motion_last_area = 0
+motion_previous_gray = None
+motion_last_processed_at = 0.0
+motion_baseline_frames = 0
 request_buckets = defaultdict(deque)
 event_log = []
 EVENT_LOG_LIMIT = 300
 next_event_id = 1
 lock = threading.Lock()
 camera_access_lock = threading.Lock()
+motion_state_lock = threading.Lock()
 
 def get_client_ip():
     forwarded = request.headers.get('X-Forwarded-For', '')
@@ -737,6 +752,120 @@ def save_camera_frame_bytes(frame_bytes):
     return camera_last_snapshot_url, captured_at
 
 
+def motion_status_payload():
+    return {
+        'enabled': motion_detection_enabled,
+        'available': OPENCV_AVAILABLE,
+        'active': motion_detection_enabled and camera_state == 'streaming',
+        'sensitivity': MOTION_SENSITIVITY,
+        'min_area': MOTION_MIN_AREA,
+        'cooldown_sec': MOTION_COOLDOWN_SEC,
+        'last_detected_ts': motion_last_detected_at,
+        'last_snapshot_url': motion_last_snapshot_url,
+        'detection_count': motion_detection_count,
+        'last_area': motion_last_area
+    }
+
+
+def reset_motion_baseline():
+    global motion_previous_gray, motion_last_processed_at, motion_baseline_frames, motion_last_area
+    with motion_state_lock:
+        motion_previous_gray = None
+        motion_last_processed_at = 0.0
+        motion_baseline_frames = 0
+        motion_last_area = 0
+
+
+def prepare_motion_frame(frame):
+    """Create a small blurred grayscale frame for inexpensive Pi-side detection."""
+    if frame is None or not OPENCV_AVAILABLE:
+        return None
+    try:
+        if frame.ndim == 2:
+            gray = frame
+        elif frame.shape[2] == 4:
+            gray = cv2.cvtColor(frame, cv2.COLOR_RGBA2GRAY)
+        else:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        width = 500
+        if gray.shape[1] > width:
+            height = max(1, int(gray.shape[0] * (width / gray.shape[1])))
+            gray = cv2.resize(gray, (width, height))
+        return cv2.GaussianBlur(gray, (21, 21), 0)
+    except Exception as exc:
+        print('[MOTION] Frame preparation failed:', exc)
+        return None
+
+
+def process_motion_frame(frame):
+    """Compare consecutive frames and save evidence when significant motion occurs."""
+    global motion_previous_gray, motion_last_processed_at, motion_baseline_frames
+    global motion_last_detected_at, motion_last_snapshot_url, motion_detection_count, motion_last_area
+
+    if not motion_detection_enabled or not OPENCV_AVAILABLE:
+        return
+
+    now_monotonic = time.monotonic()
+    if now_monotonic - motion_last_processed_at < MOTION_PROCESS_INTERVAL_SEC:
+        return
+    motion_last_processed_at = now_monotonic
+
+    # Camera movement caused by driving is not a security event. Rebuild the
+    # baseline after the chassis has been still for a short stabilization window.
+    if motor_direction != 'stop' or now_monotonic - last_motion_command_at < MOTION_STABILIZE_SEC:
+        reset_motion_baseline()
+        return
+
+    gray = prepare_motion_frame(frame)
+    if gray is None:
+        return
+
+    with motion_state_lock:
+        previous = motion_previous_gray
+        motion_previous_gray = gray
+        if previous is None or motion_baseline_frames < 2:
+            motion_baseline_frames += 1
+            return
+
+    try:
+        frame_delta = cv2.absdiff(previous, gray)
+        # Higher sensitivity means a lower pixel-difference threshold.
+        pixel_threshold = max(10, 45 - (MOTION_SENSITIVITY * 4))
+        threshold = cv2.threshold(frame_delta, pixel_threshold, 255, cv2.THRESH_BINARY)[1]
+        threshold = cv2.dilate(threshold, None, iterations=2)
+        contours = cv2.findContours(threshold, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours = contours[0] if len(contours) == 2 else contours[1]
+        largest_area = int(max((cv2.contourArea(contour) for contour in contours), default=0))
+    except Exception as exc:
+        print('[MOTION] Detection failed:', exc)
+        return
+
+    with motion_state_lock:
+        motion_last_area = largest_area
+
+    if largest_area < MOTION_MIN_AREA:
+        return
+
+    now = int(time.time())
+    if motion_last_detected_at and now - motion_last_detected_at < MOTION_COOLDOWN_SEC:
+        return
+
+    snapshot_url, captured_at = save_camera_frame(frame)
+    if snapshot_url is None:
+        print('[MOTION] Motion detected, but the evidence frame could not be saved')
+        return
+
+    with motion_state_lock:
+        motion_last_detected_at = captured_at
+        motion_last_snapshot_url = snapshot_url
+        motion_detection_count += 1
+
+    add_audit('motion_detected', 'system')
+    add_event('motion', f'Motion detected (area {largest_area}); evidence saved: {snapshot_url}', 'warning')
+    print(f'[MOTION] Detected area={largest_area}, snapshot={snapshot_url}')
+
+
 def test_camera_connection():
     if not CAMERA_ENABLED:
         return False, 'Camera support is disabled (CAMERA_ENABLED=false)', None, None
@@ -855,6 +984,7 @@ def generate_camera_frames():
                     frame = picam.capture_array()
                     if frame is None:
                         break
+                    process_motion_frame(frame)
                     frame_bytes = encode_frame_as_jpeg(frame)
                     if frame_bytes is None:
                         break
@@ -877,6 +1007,7 @@ def generate_camera_frames():
                     ret, frame = cap_cv.read()
                     if not ret or frame is None:
                         break
+                    process_motion_frame(frame)
                     ret, jpeg = cv2.imencode('.jpg', frame)
                     if not ret:
                         break
@@ -953,7 +1084,8 @@ def status():
         'camera': {
             'state': camera_state,
             'last_snapshot_ts': camera_last_snapshot,
-            'last_snapshot_url': camera_last_snapshot_url
+            'last_snapshot_url': camera_last_snapshot_url,
+            'motion': motion_status_payload()
         },
         'safety': {
             'max_speed_cap': MAX_SPEED_CAP,
@@ -1040,7 +1172,8 @@ def health():
         'camera': {
             'state': camera_state,
             'last_snapshot_ts': camera_last_snapshot,
-            'last_snapshot_url': camera_last_snapshot_url
+            'last_snapshot_url': camera_last_snapshot_url,
+            'motion': motion_status_payload()
         },
         'motor': {
             'direction': motor_direction,
@@ -1060,7 +1193,8 @@ def camera_status():
     return jsonify({
         'state': camera_state,
         'last_snapshot_ts': camera_last_snapshot,
-        'last_snapshot_url': camera_last_snapshot_url
+        'last_snapshot_url': camera_last_snapshot_url,
+        'motion': motion_status_payload()
     })
 
 @app.route('/api/camera/ready', methods=['POST'])
@@ -1079,6 +1213,7 @@ def camera_start():
     if camera_state == 'not_connected':
         return jsonify({'error': 'camera_not_connected'}), 400
     camera_state = 'streaming'
+    reset_motion_baseline()
     add_audit('camera_stream_start', 'driver')
     add_event('camera', 'Camera stream started', 'info')
     return jsonify({'status': 'camera streaming', 'state': camera_state})
@@ -1089,9 +1224,36 @@ def camera_stop():
     global camera_state
     if camera_state == 'streaming':
         camera_state = 'ready'
+    reset_motion_baseline()
     add_audit('camera_stream_stop', 'driver')
     add_event('camera', 'Camera stream stopped', 'info')
     return jsonify({'status': 'camera stopped', 'state': camera_state})
+
+
+@app.route('/api/camera/motion/start', methods=['POST'])
+@require_auth('driver')
+def motion_detection_start():
+    global motion_detection_enabled
+    if not OPENCV_AVAILABLE:
+        return jsonify({'error': 'opencv_unavailable', 'message': 'OpenCV is required for motion detection'}), 503
+    if camera_state != 'streaming':
+        return jsonify({'error': 'camera_not_streaming', 'message': 'Start the camera stream before arming motion detection'}), 409
+    motion_detection_enabled = True
+    reset_motion_baseline()
+    add_audit('motion_detection_started', 'driver')
+    add_event('motion', 'Motion detection armed', 'info')
+    return jsonify({'status': 'motion detection armed', 'state': camera_state, 'motion': motion_status_payload()})
+
+
+@app.route('/api/camera/motion/stop', methods=['POST'])
+@require_auth('driver')
+def motion_detection_stop():
+    global motion_detection_enabled
+    motion_detection_enabled = False
+    reset_motion_baseline()
+    add_audit('motion_detection_stopped', 'driver')
+    add_event('motion', 'Motion detection disarmed', 'info')
+    return jsonify({'status': 'motion detection disarmed', 'state': camera_state, 'motion': motion_status_payload()})
 
 @app.route('/api/camera/snapshot', methods=['POST'])
 @require_auth('driver')

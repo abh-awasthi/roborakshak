@@ -532,6 +532,42 @@ kbd {
     max-width: 42ch;
 }
 
+.motion-status {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: 12px;
+    padding: 12px;
+    border: 1px solid rgba(231, 239, 255, 0.18);
+    border-radius: 8px;
+    background: rgba(4, 12, 24, 0.32);
+}
+
+.motion-status p {
+    margin: 4px 0 0;
+    max-width: none;
+    color: #c9d8ee;
+    font-size: 0.82rem;
+}
+
+.motion-indicator {
+    flex: 0 0 auto;
+    width: 11px;
+    height: 11px;
+    margin-top: 4px;
+    border-radius: 50%;
+    background: #7d8da6;
+}
+
+.motion-status.active .motion-indicator {
+    background: #43d17d;
+    box-shadow: 0 0 0 5px rgba(67, 209, 125, 0.14);
+}
+
+.motion-arm-btn {
+    border-color: #238636;
+}
+
 .camera-actions {
     padding: 12px;
     background: var(--surface-muted);

@@ -7,6 +7,7 @@ RoboRakshak is a Flask-based web controller for a Raspberry Pi robot motor setup
 - Web control UI for movement and speed
 - REST API for motor commands
 - Raspberry Pi GPIO runtime with automatic mock fallback
+- Live camera streaming, snapshots, and OpenCV motion alerts
 - Installer and systemd service setup scripts
 
 ## Quick Start
@@ -60,6 +61,9 @@ sudo systemctl restart roborakshak.service
 - `POST /api/motor/stop`
 - `POST /api/motor/speed/<int:speed>`
 - `GET /api/status`
+- `GET /api/camera/status`
+- `POST /api/camera/motion/start`
+- `POST /api/camera/motion/stop`
 
 Example:
 

@@ -6,7 +6,7 @@
 - Battery-powered robot
 
 ## Phase 2
-- Motion detection
+- Motion detection (implemented: automatic evidence snapshots and event alerts)
 - Alerts
 - AI surveillance
 

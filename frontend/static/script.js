@@ -109,6 +109,14 @@ class RoboRakshakController {
         if (cameraTestBtn) {
             cameraTestBtn.addEventListener('click', () => this.cameraTest());
         }
+        const motionStartBtn = document.getElementById('motionStartBtn');
+        if (motionStartBtn) {
+            motionStartBtn.addEventListener('click', () => this.motionStart());
+        }
+        const motionStopBtn = document.getElementById('motionStopBtn');
+        if (motionStopBtn) {
+            motionStopBtn.addEventListener('click', () => this.motionStop());
+        }
 
         const refreshDiagBtn = document.getElementById('refreshDiagBtn');
         if (refreshDiagBtn) {
@@ -252,7 +260,14 @@ class RoboRakshakController {
             'leftBtn',
             'rightBtn',
             'stopBtn',
-            'speedSlider'
+            'speedSlider',
+            'cameraReadyBtn',
+            'cameraStartBtn',
+            'cameraStopBtn',
+            'cameraSnapshotBtn',
+            'cameraTestBtn',
+            'motionStartBtn',
+            'motionStopBtn'
         ];
         controlButtons.forEach(id => {
             const el = document.getElementById(id);
@@ -1077,13 +1092,20 @@ class RoboRakshakController {
         return `${this.baseURL}${path}`;
     }
 
-    renderCameraState(state, snapshotTs, snapshotUrl = null) {
+    renderCameraState(state, snapshotTs, snapshotUrl = null, motion = null) {
         const stateEl = document.getElementById('cameraStateValue');
         const snapEl = document.getElementById('cameraSnapshotValue');
         const feedEl = document.getElementById('cameraFeed');
         const hintEl = document.getElementById('cameraFeedHint');
         const snapshotEl = document.getElementById('cameraSnapshotPreview');
         const snapshotLinkEl = document.getElementById('cameraSnapshotLink');
+        const motionCardEl = document.getElementById('motionStatusCard');
+        const motionStateEl = document.getElementById('motionStateValue');
+        const motionCountEl = document.getElementById('motionCountValue');
+        const motionLastEl = document.getElementById('motionLastValue');
+        const motionConfigEl = document.getElementById('motionConfigValue');
+        const motionStartBtn = document.getElementById('motionStartBtn');
+        const motionStopBtn = document.getElementById('motionStopBtn');
 
         if (stateEl) {
             const labels = {
@@ -1113,7 +1135,11 @@ class RoboRakshakController {
             // Append token query param so <img> can authenticate (Authorization header
             // cannot be attached to an <img> request). Token is short-lived session token.
             const tokenParam = this.authToken ? `&token=${encodeURIComponent(this.authToken)}` : '';
-            feedEl.src = `${this.baseURL}/api/camera/stream?ts=${Date.now()}${tokenParam}`;
+            const streamSource = feedEl.getAttribute('src') || '';
+            const streamFailed = feedEl.complete && feedEl.naturalWidth === 0;
+            if (!streamSource.includes('/api/camera/stream') || streamFailed) {
+                feedEl.src = `${this.baseURL}/api/camera/stream?ts=${Date.now()}${tokenParam}`;
+            }
             if (hintEl) {
                 hintEl.textContent = 'Live camera stream active.';
             }
@@ -1128,17 +1154,38 @@ class RoboRakshakController {
                     : 'Start the stream to view live camera footage here.';
             }
         }
+
+        if (motion) {
+            const isActive = Boolean(motion.active);
+            if (motionCardEl) motionCardEl.classList.toggle('active', isActive);
+            if (motionStateEl) {
+                motionStateEl.textContent = !motion.available
+                    ? 'Unavailable'
+                    : isActive ? 'Armed' : motion.enabled ? 'Waiting for stream' : 'Disarmed';
+            }
+            if (motionCountEl) motionCountEl.textContent = String(motion.detection_count || 0);
+            if (motionLastEl) {
+                motionLastEl.textContent = motion.last_detected_ts
+                    ? new Date(motion.last_detected_ts * 1000).toLocaleString()
+                    : 'Never';
+            }
+            if (motionConfigEl) {
+                motionConfigEl.textContent = `Sensitivity ${motion.sensitivity}/10 · Minimum area ${motion.min_area}px · ${motion.cooldown_sec}s cooldown`;
+            }
+            if (motionStartBtn) motionStartBtn.disabled = !this.isDriver() || isActive || state !== 'streaming' || !motion.available;
+            if (motionStopBtn) motionStopBtn.disabled = !this.isDriver() || !motion.enabled;
+        }
     }
 
     async fetchCameraStateData() {
         const candidates = [
             {
                 url: `${this.baseURL}/api/camera/status`,
-                parse: (data) => ({ state: data?.state, snapshot: data?.last_snapshot_ts, snapshotUrl: data?.last_snapshot_url })
+                parse: (data) => ({ state: data?.state, snapshot: data?.last_snapshot_ts, snapshotUrl: data?.last_snapshot_url, motion: data?.motion })
             },
             {
                 url: `${this.baseURL}/api/status`,
-                parse: (data) => ({ state: data?.camera?.state, snapshot: data?.camera?.last_snapshot_ts, snapshotUrl: data?.camera?.last_snapshot_url })
+                parse: (data) => ({ state: data?.camera?.state, snapshot: data?.camera?.last_snapshot_ts, snapshotUrl: data?.camera?.last_snapshot_url, motion: data?.camera?.motion })
             }
         ];
 
@@ -1174,7 +1221,7 @@ class RoboRakshakController {
         try {
             const cameraState = await this.fetchCameraStateData();
             if (cameraState) {
-                this.renderCameraState(cameraState.state, cameraState.snapshot, cameraState.snapshotUrl);
+                this.renderCameraState(cameraState.state, cameraState.snapshot, cameraState.snapshotUrl, cameraState.motion);
             } else {
                 this.renderCameraState('not_connected', null);
             }
@@ -1202,7 +1249,7 @@ class RoboRakshakController {
                 throw new Error(data.error || 'Camera command failed');
             }
             this.triggerFeedback('ok');
-            this.renderCameraState(data.state, data.captured_at || null, data.snapshot_url || null);
+            this.renderCameraState(data.state, data.captured_at || null, data.snapshot_url || null, data.motion || null);
             await this.updateDiagnostics();
             return data;
         } catch (error) {
@@ -1229,6 +1276,18 @@ class RoboRakshakController {
     async cameraSnapshot() {
         await this.sendCameraCommand('/api/camera/snapshot');
         await this.updateCameraStatus();
+    }
+
+    async motionStart() {
+        await this.sendCameraCommand('/api/camera/motion/start');
+        await this.updateCameraStatus();
+        await this.updateEvents();
+    }
+
+    async motionStop() {
+        await this.sendCameraCommand('/api/camera/motion/stop');
+        await this.updateCameraStatus();
+        await this.updateEvents();
     }
 
     async cameraTest() {
