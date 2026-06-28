@@ -36,6 +36,22 @@ def _env_or_ini_bool(key, default=False):
     return ini_value.lower() in ('1', 'true', 'yes', 'on')
 
 
+def _env_or_ini_int(key, default):
+    env_value = os.getenv(key)
+    if env_value is not None:
+        try:
+            return int(env_value)
+        except (ValueError, TypeError):
+            pass
+    ini_value = _read_ini_setting(key)
+    if ini_value is None:
+        return default
+    try:
+        return int(ini_value)
+    except (ValueError, TypeError):
+        return default
+
+
 def _env_or_ini_value(key, default):
     env_value = os.getenv(key)
     if env_value is not None:
@@ -143,7 +159,7 @@ RATE_LIMIT_WINDOW_SEC = int(os.getenv('RATE_LIMIT_WINDOW_SEC', '10'))
 RATE_LIMIT_MAX_REQUESTS = int(os.getenv('RATE_LIMIT_MAX_REQUESTS', '40'))
 RESTRICT_TO_LOCAL_NET = os.getenv('RESTRICT_TO_LOCAL_NET', '0').lower() in ('1', 'true', 'yes')
 CAMERA_ENABLED = _env_or_ini_bool('CAMERA_ENABLED', True)
-CAMERA_DEVICE_INDEX = int(_env_or_ini_value('CAMERA_DEVICE_INDEX', '0'))
+CAMERA_DEVICE_INDEX = _env_or_ini_int('CAMERA_DEVICE_INDEX', 0)
 CAMERA_RESOLUTION = _env_or_ini_value('CAMERA_RESOLUTION', '1920x1080')
 
 # Global variables
