@@ -49,6 +49,8 @@ sudo apt-get install -y python3-pip python3-venv git python3-dev libcap-dev
 
 # Install optional camera libraries (if available on this OS version)
 sudo apt-get install -y libopenjp2-7 libtiff5 libwebp7 libharfbuzz0b libjasper1 2>/dev/null || true
+# Ensure libcamera and Python bindings are installed for Raspberry Pi CSI cameras
+sudo apt-get install -y libcamera-apps libcamera-dev python3-libcamera python3-picamera2 i2c-tools 2>/dev/null || true
 
 echo -e "${GREEN}✓ System packages updated${NC}"
 echo ""
@@ -56,8 +58,9 @@ echo ""
 # Step 2: Create virtual environment
 echo -e "${YELLOW}Step 2: Creating Python virtual environment...${NC}"
 if [ ! -d "$PROJECT_DIR/venv" ]; then
-    python3 -m venv "$PROJECT_DIR/venv"
-    echo -e "${GREEN}✓ Virtual environment created${NC}"
+    # Create venv that can access system site-packages so system-installed picamera2/libcamera are available
+    python3 -m venv --system-site-packages "$PROJECT_DIR/venv"
+    echo -e "${GREEN}✓ Virtual environment created (with system site-packages)${NC}"
 else
     echo -e "${GREEN}✓ Virtual environment already exists${NC}"
 fi
