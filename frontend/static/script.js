@@ -93,6 +93,10 @@ class RoboRakshakController {
         if (cameraSnapshotBtn) {
             cameraSnapshotBtn.addEventListener('click', () => this.cameraSnapshot());
         }
+        const cameraTestBtn = document.getElementById('cameraTestBtn');
+        if (cameraTestBtn) {
+            cameraTestBtn.addEventListener('click', () => this.cameraTest());
+        }
 
         const refreshDiagBtn = document.getElementById('refreshDiagBtn');
         if (refreshDiagBtn) {
@@ -1135,6 +1139,47 @@ class RoboRakshakController {
     async cameraSnapshot() {
         await this.sendCameraCommand('/api/camera/snapshot');
         await this.updateCameraStatus();
+    }
+
+    async cameraTest() {
+        if (!this.isDriver()) {
+            this.triggerFeedback('error');
+            return;
+        }
+        try {
+            const response = await fetch(`${this.baseURL}/api/camera/test`, {
+                method: 'POST',
+                headers: this.authHeaders({ 'Content-Type': 'application/json' })
+            });
+
+            if (response.status === 401 || response.status === 403) {
+                await this.logout();
+                return;
+            }
+
+            const data = await response.json();
+            const resultEl = document.getElementById('cameraTestResult');
+            if (resultEl) {
+                if (response.ok) {
+                    resultEl.textContent = data.message || 'Camera test passed';
+                } else {
+                    resultEl.textContent = data.message || 'Camera test failed';
+                }
+            }
+            if (response.ok) {
+                this.triggerFeedback('ok');
+                this.renderCameraState(data.state, data.captured_at || null);
+            } else {
+                this.triggerFeedback('error');
+            }
+        } catch (error) {
+            console.error('Camera test failed:', error);
+            const resultEl = document.getElementById('cameraTestResult');
+            if (resultEl) {
+                resultEl.textContent = 'Camera test failed: network error';
+            }
+            this.triggerFeedback('error');
+        }
     }
 
     initializeTabs() {

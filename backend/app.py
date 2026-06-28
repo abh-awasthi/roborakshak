@@ -8,6 +8,14 @@ import json
 from functools import wraps
 from collections import deque, defaultdict
 
+# OpenCV support for camera testing
+try:
+    import cv2
+    OPENCV_AVAILABLE = True
+except Exception:
+    cv2 = None
+    OPENCV_AVAILABLE = False
+
 # FORCE_MOCK env var (set to 1/true/yes to force mock GPIO even on Raspberry Pi)
 FORCE_MOCK = os.getenv('FORCE_MOCK', '').lower() in ('1', 'true', 'yes')
 
@@ -97,6 +105,9 @@ AUDIT_LOG_LIMIT = 200
 RATE_LIMIT_WINDOW_SEC = int(os.getenv('RATE_LIMIT_WINDOW_SEC', '10'))
 RATE_LIMIT_MAX_REQUESTS = int(os.getenv('RATE_LIMIT_MAX_REQUESTS', '40'))
 RESTRICT_TO_LOCAL_NET = os.getenv('RESTRICT_TO_LOCAL_NET', '0').lower() in ('1', 'true', 'yes')
+CAMERA_ENABLED = os.getenv('CAMERA_ENABLED', '0').lower() in ('1', 'true', 'yes')
+CAMERA_DEVICE_INDEX = int(os.getenv('CAMERA_DEVICE_INDEX', '0'))
+CAMERA_RESOLUTION = os.getenv('CAMERA_RESOLUTION', '1920x1080')
 
 # Global variables
 left_pwm = None
@@ -396,6 +407,40 @@ def get_local_ip():
     except Exception:
         return "unknown"
 
+def parse_camera_resolution(resolution):
+    try:
+        width, height = resolution.strip().split('x')
+        return int(width), int(height)
+    except Exception:
+        return 1920, 1080
+
+def test_camera_connection():
+    if not OPENCV_AVAILABLE:
+        return False, 'OpenCV is not available on the server'
+    if not CAMERA_ENABLED:
+        return False, 'Camera support is disabled (CAMERA_ENABLED=false)'
+
+    cap = None
+    try:
+        cap = cv2.VideoCapture(CAMERA_DEVICE_INDEX)
+        if not cap.isOpened():
+            return False, f'Unable to open camera device index {CAMERA_DEVICE_INDEX}'
+
+        width, height = parse_camera_resolution(CAMERA_RESOLUTION)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            return False, 'Failed to capture a frame from the camera'
+
+        return True, f'Camera connected, frame captured ({frame.shape[1]}x{frame.shape[0]})'
+    except Exception as exc:
+        return False, str(exc)
+    finally:
+        if cap is not None:
+            cap.release()
+
 # Routes
 @app.route('/')
 def home():
@@ -600,6 +645,24 @@ def camera_snapshot():
         'captured_at': camera_last_snapshot,
         'note': 'Camera hardware integration pending.'
     })
+
+@app.route('/api/camera/test', methods=['POST'])
+@require_auth('driver')
+def camera_test():
+    global camera_state
+    ok, message = test_camera_connection()
+    add_audit('camera_test', 'driver' if ok else 'system')
+    if ok:
+        if camera_state == 'not_connected':
+            camera_state = 'ready'
+        add_event('camera', f'Camera test passed: {message}', 'info')
+        return jsonify({
+            'status': 'camera_ok',
+            'message': message,
+            'state': camera_state
+        })
+    add_event('camera', f'Camera test failed: {message}', 'warning')
+    return jsonify({'error': 'camera_test_failed', 'message': message}), 500
 
 @app.route('/api/motor/forward', methods=['POST'])
 @require_auth('driver')
