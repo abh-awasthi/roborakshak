@@ -1,7 +1,7 @@
 // RoboRakshak Motor Control UI
 class RoboRakshakController {
     constructor() {
-        this.baseURL = window.location.origin;
+        this.baseURL = this.resolveBaseURL();
         this.authToken = localStorage.getItem('rr_auth_token') || '';
         this.userRole = localStorage.getItem('rr_user_role') || '';
         this.currentSpeed = 50;
@@ -47,6 +47,18 @@ class RoboRakshakController {
         this.initializePWA();
         this.updateStatus();
         this.startStatusPolling();
+    }
+
+    resolveBaseURL() {
+        const protocol = window.location.protocol;
+        const hostname = window.location.hostname || 'localhost';
+        const port = window.location.port;
+
+        if (port) {
+            return `${protocol}//${hostname}:${port}`;
+        }
+
+        return `${protocol}//${hostname}:5000`;
     }
 
     initializeEventListeners() {
