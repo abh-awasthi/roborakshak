@@ -1178,13 +1178,13 @@ class RoboRakshakController {
                 return;
             }
 
-            const data = await response.json();
+            const data = await response.json().catch(() => ({}));
             const resultEl = document.getElementById('cameraTestResult');
             if (resultEl) {
                 if (response.ok) {
                     resultEl.textContent = data.message || 'Camera test passed';
                 } else {
-                    resultEl.textContent = data.message || 'Camera test failed';
+                    resultEl.textContent = data.message || `Camera test failed (${response.status})`;
                 }
             }
             if (response.ok) {
@@ -1197,7 +1197,7 @@ class RoboRakshakController {
             console.error('Camera test failed:', error);
             const resultEl = document.getElementById('cameraTestResult');
             if (resultEl) {
-                resultEl.textContent = 'Camera test failed: network error';
+                resultEl.textContent = error.message || 'Camera test failed: network error';
             }
             this.triggerFeedback('error');
         }
