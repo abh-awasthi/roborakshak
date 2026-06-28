@@ -855,7 +855,7 @@ def camera_test():
 def camera_stream():
     if camera_state != 'streaming':
         return jsonify({'error': 'camera_not_streaming'}), 400
-    if not OPENCV_AVAILABLE or not CAMERA_ENABLED:
+    if not CAMERA_ENABLED:
         return jsonify({'error': 'camera_unavailable'}), 503
     return Response(generate_camera_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
