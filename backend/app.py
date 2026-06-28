@@ -5,6 +5,7 @@ import threading
 import os
 import secrets
 import json
+import traceback
 from functools import wraps
 from collections import deque, defaultdict
 
@@ -505,6 +506,8 @@ def test_camera_connection():
                 return False, 'Failed to capture a frame from the camera (picamera2)'
             return True, f'Camera connected (picamera2), frame captured ({frame.shape[1]}x{frame.shape[0]})'
         except Exception as exc:
+            print('[CAMERA] picamera2 test failed:', exc)
+            traceback.print_exc()
             # fall through to OpenCV fallback
             try:
                 if picam is not None:
@@ -555,7 +558,9 @@ def get_camera_capture():
             picam.configure(cfg)
             picam.start()
             return picam
-        except Exception:
+        except Exception as exc:
+            print('[CAMERA] picamera2 capture initialization failed:', exc)
+            traceback.print_exc()
             try:
                 picam.close()
             except Exception:
@@ -599,8 +604,9 @@ def generate_camera_frames():
                 try:
                     picam.stop()
                     picam.close()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    print('[CAMERA] picamera2 cleanup failed:', exc)
+                    traceback.print_exc()
         else:
             # OpenCV capture
             cap_cv = cap
