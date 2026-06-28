@@ -53,6 +53,22 @@ def _env_or_ini_int(key, default):
         return default
 
 
+def _env_or_ini_float(key, default):
+    env_value = os.getenv(key)
+    if env_value is not None:
+        try:
+            return float(env_value)
+        except (ValueError, TypeError):
+            pass
+    ini_value = _read_ini_setting(key)
+    if ini_value is None:
+        return default
+    try:
+        return float(ini_value)
+    except (ValueError, TypeError):
+        return default
+
+
 def _env_or_ini_value(key, default):
     env_value = os.getenv(key)
     if env_value is not None:
@@ -167,8 +183,10 @@ RATE_LIMIT_WINDOW_SEC = int(os.getenv('RATE_LIMIT_WINDOW_SEC', '10'))
 RATE_LIMIT_MAX_REQUESTS = int(os.getenv('RATE_LIMIT_MAX_REQUESTS', '40'))
 RESTRICT_TO_LOCAL_NET = os.getenv('RESTRICT_TO_LOCAL_NET', '0').lower() in ('1', 'true', 'yes')
 CAMERA_ENABLED = _env_or_ini_bool('CAMERA_ENABLED', True)
-CAMERA_DEVICE_INDEX = _env_or_ini_int('CAMERA_DEVICE_INDEX', 0)
+CAMERA_DEVICE = _env_or_ini_value('CAMERA_DEVICE', _env_or_ini_value('CAMERA_DEVICE_INDEX', '0'))
 CAMERA_RESOLUTION = _env_or_ini_value('CAMERA_RESOLUTION', '1920x1080')
+CAMERA_WARMUP_SECONDS = _env_or_ini_float('CAMERA_WARMUP_SECONDS', 1.5)
+CAMERA_READ_ATTEMPTS = _env_or_ini_int('CAMERA_READ_ATTEMPTS', 12)
 
 # Global variables
 left_pwm = None
@@ -488,6 +506,85 @@ def parse_camera_resolution(resolution):
         return 1920, 1080
 
 
+def get_camera_device_source():
+    value = str(CAMERA_DEVICE).strip()
+    if value.lstrip('-').isdigit():
+        return int(value)
+    return value
+
+
+def release_camera_capture(cap):
+    if cap is None:
+        return
+    try:
+        if hasattr(cap, 'release'):
+            cap.release()
+        elif hasattr(cap, 'stop'):
+            cap.stop()
+            cap.close()
+    except Exception:
+        pass
+
+
+def requested_and_fallback_resolutions():
+    requested = parse_camera_resolution(CAMERA_RESOLUTION)
+    candidates = [requested, (1280, 720), (640, 480)]
+    unique = []
+    for size in candidates:
+        if size not in unique:
+            unique.append(size)
+    return unique
+
+
+def open_opencv_capture(width, height):
+    source = get_camera_device_source()
+    backends = [None]
+    if hasattr(cv2, 'CAP_V4L2') and os.name == 'posix':
+        backends.insert(0, cv2.CAP_V4L2)
+
+    for backend in backends:
+        cap = cv2.VideoCapture(source) if backend is None else cv2.VideoCapture(source, backend)
+        if not cap.isOpened():
+            release_camera_capture(cap)
+            continue
+        if hasattr(cv2, 'CAP_PROP_FOURCC'):
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        return cap
+    return None
+
+
+def read_opencv_frame(cap):
+    deadline = time.monotonic() + CAMERA_WARMUP_SECONDS
+    attempts = max(CAMERA_READ_ATTEMPTS, 1)
+    for _ in range(attempts):
+        ret, frame = cap.read()
+        if ret and frame is not None:
+            return frame
+        if time.monotonic() < deadline:
+            time.sleep(0.1)
+    return None
+
+
+def get_opencv_capture_with_frame():
+    if not OPENCV_AVAILABLE:
+        return None, None, 'OpenCV is not available on the server'
+
+    source = get_camera_device_source()
+    last_message = f'Unable to open camera device {source}'
+    for width, height in requested_and_fallback_resolutions():
+        cap = open_opencv_capture(width, height)
+        if cap is None:
+            continue
+        frame = read_opencv_frame(cap)
+        if frame is not None:
+            return cap, frame, f'{frame.shape[1]}x{frame.shape[0]}'
+        release_camera_capture(cap)
+        last_message = f'Opened camera device {source}, but could not read a frame at {width}x{height}'
+    return None, None, last_message
+
+
 def encode_frame_as_jpeg(frame):
     if frame is None:
         return None
@@ -522,12 +619,14 @@ def test_camera_connection():
             time.sleep(0.2)
             frame = picam.capture_array()
             if frame is None:
-                return False, 'Failed to capture a frame from the camera (picamera2)'
-            return True, f'Camera connected (picamera2), frame captured ({frame.shape[1]}x{frame.shape[0]})'
+                print('[CAMERA] picamera2 test opened camera but captured no frame')
+            else:
+                return True, f'Camera connected (picamera2), frame captured ({frame.shape[1]}x{frame.shape[0]})'
         except Exception as exc:
             print('[CAMERA] picamera2 test failed:', exc)
             traceback.print_exc()
             # fall through to OpenCV fallback
+        finally:
             try:
                 if picam is not None:
                     picam.stop()
@@ -535,33 +634,16 @@ def test_camera_connection():
             except Exception:
                 pass
 
-    # Fallback to OpenCV VideoCapture
-    if not OPENCV_AVAILABLE:
-        return False, 'OpenCV is not available on the server'
-
     cap = None
     try:
-        cap = cv2.VideoCapture(CAMERA_DEVICE_INDEX)
-        if not cap.isOpened():
-            return False, f'Unable to open camera device index {CAMERA_DEVICE_INDEX}'
-
-        width, height = parse_camera_resolution(CAMERA_RESOLUTION)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-
-        ret, frame = cap.read()
-        if not ret or frame is None:
-            return False, 'Failed to capture a frame from the camera (opencv)'
-
-        return True, f'Camera connected (opencv), frame captured ({frame.shape[1]}x{frame.shape[0]})'
+        cap, frame, message = get_opencv_capture_with_frame()
+        if frame is None:
+            return False, f'Failed to capture a frame from the camera (opencv): {message}'
+        return True, f'Camera connected (opencv), frame captured ({message})'
     except Exception as exc:
         return False, str(exc)
     finally:
-        if cap is not None:
-            try:
-                cap.release()
-            except Exception:
-                pass
+        release_camera_capture(cap)
 
 
 def get_camera_capture():
@@ -585,18 +667,10 @@ def get_camera_capture():
             except Exception:
                 pass
             # fall through to OpenCV
-    if not OPENCV_AVAILABLE:
+    cap, frame, message = get_opencv_capture_with_frame()
+    if cap is None:
+        print('[CAMERA] OpenCV capture initialization failed:', message)
         return None
-    cap = cv2.VideoCapture(CAMERA_DEVICE_INDEX)
-    if not cap.isOpened():
-        try:
-            cap.release()
-        except Exception:
-            pass
-        return None
-    width, height = parse_camera_resolution(CAMERA_RESOLUTION)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     return cap
 
 
