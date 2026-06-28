@@ -487,10 +487,35 @@ def parse_camera_resolution(resolution):
         return 1920, 1080
 
 def test_camera_connection():
-    if not OPENCV_AVAILABLE:
-        return False, 'OpenCV is not available on the server'
     if not CAMERA_ENABLED:
         return False, 'Camera support is disabled (CAMERA_ENABLED=false)'
+
+    # Try Picamera2 first for CSI cameras
+    if PICAMERA2_AVAILABLE:
+        picam = None
+        try:
+            picam = Picamera2()
+            width, height = parse_camera_resolution(CAMERA_RESOLUTION)
+            cfg = picam.create_preview_configuration({'format': 'XRGB8888', 'size': (width, height)})
+            picam.configure(cfg)
+            picam.start()
+            time.sleep(0.2)
+            frame = picam.capture_array()
+            if frame is None:
+                return False, 'Failed to capture a frame from the camera (picamera2)'
+            return True, f'Camera connected (picamera2), frame captured ({frame.shape[1]}x{frame.shape[0]})'
+        except Exception as exc:
+            # fall through to OpenCV fallback
+            try:
+                if picam is not None:
+                    picam.stop()
+                    picam.close()
+            except Exception:
+                pass
+
+    # Fallback to OpenCV VideoCapture
+    if not OPENCV_AVAILABLE:
+        return False, 'OpenCV is not available on the server'
 
     cap = None
     try:
@@ -504,14 +529,17 @@ def test_camera_connection():
 
         ret, frame = cap.read()
         if not ret or frame is None:
-            return False, 'Failed to capture a frame from the camera'
+            return False, 'Failed to capture a frame from the camera (opencv)'
 
-        return True, f'Camera connected, frame captured ({frame.shape[1]}x{frame.shape[0]})'
+        return True, f'Camera connected (opencv), frame captured ({frame.shape[1]}x{frame.shape[0]})'
     except Exception as exc:
         return False, str(exc)
     finally:
         if cap is not None:
-            cap.release()
+            try:
+                cap.release()
+            except Exception:
+                pass
 
 
 def get_camera_capture():
