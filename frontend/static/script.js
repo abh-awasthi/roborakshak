@@ -1104,23 +1104,54 @@ class RoboRakshakController {
         }
     }
 
+    async fetchCameraStateData() {
+        const candidates = [
+            {
+                url: `${this.baseURL}/api/camera/status`,
+                parse: (data) => ({ state: data?.state, snapshot: data?.last_snapshot_ts })
+            },
+            {
+                url: `${this.baseURL}/api/status`,
+                parse: (data) => ({ state: data?.camera?.state, snapshot: data?.camera?.last_snapshot_ts })
+            }
+        ];
+
+        for (const candidate of candidates) {
+            try {
+                const response = await fetch(candidate.url, {
+                    headers: this.authHeaders()
+                });
+                if (response.status === 401 || response.status === 403) {
+                    await this.logout();
+                    return null;
+                }
+                if (!response.ok) {
+                    continue;
+                }
+                const data = await response.json().catch(() => null);
+                const parsed = candidate.parse(data);
+                if (parsed && parsed.state) {
+                    return parsed;
+                }
+            } catch (error) {
+                continue;
+            }
+        }
+
+        return null;
+    }
+
     async updateCameraStatus() {
         if (!this.authToken) {
             return;
         }
         try {
-            const response = await fetch(`${this.baseURL}/api/camera/status`, {
-                headers: this.authHeaders()
-            });
-            if (response.status === 401 || response.status === 403) {
-                await this.logout();
-                return;
+            const cameraState = await this.fetchCameraStateData();
+            if (cameraState) {
+                this.renderCameraState(cameraState.state, cameraState.snapshot);
+            } else {
+                this.renderCameraState('not_connected', null);
             }
-            if (!response.ok) {
-                throw new Error('Camera status failed');
-            }
-            const data = await response.json();
-            this.renderCameraState(data.state, data.last_snapshot_ts);
         } catch (error) {
             this.renderCameraState('not_connected', null);
         }
@@ -1179,6 +1210,7 @@ class RoboRakshakController {
             this.triggerFeedback('error');
             return;
         }
+        const resultEl = document.getElementById('cameraTestResult');
         try {
             const response = await fetch(`${this.baseURL}/api/camera/test`, {
                 method: 'POST',
@@ -1190,24 +1222,46 @@ class RoboRakshakController {
                 return;
             }
 
-            const data = await response.json().catch(() => ({}));
-            const resultEl = document.getElementById('cameraTestResult');
-            if (resultEl) {
-                if (response.ok) {
-                    resultEl.textContent = data.message || 'Camera test passed';
-                } else {
-                    resultEl.textContent = data.message || `Camera test failed (${response.status})`;
-                }
-            }
             if (response.ok) {
+                const data = await response.json().catch(() => ({}));
+                if (resultEl) {
+                    resultEl.textContent = data.message || 'Camera test passed';
+                }
                 this.triggerFeedback('ok');
                 this.renderCameraState(data.state, data.captured_at || null);
-            } else {
-                this.triggerFeedback('error');
+                return;
             }
+
+            if (response.status === 404) {
+                const fallbackState = await this.fetchCameraStateData();
+                if (fallbackState) {
+                    if (resultEl) {
+                        resultEl.textContent = fallbackState.state === 'not_connected'
+                            ? 'Camera endpoint unavailable; showing current backend camera state.'
+                            : 'Camera endpoint unavailable; current camera state is shown below.';
+                    }
+                    this.renderCameraState(fallbackState.state, fallbackState.snapshot);
+                    this.triggerFeedback('warning');
+                    return;
+                }
+            }
+
+            const data = await response.json().catch(() => ({}));
+            if (resultEl) {
+                resultEl.textContent = data.message || `Camera test failed (${response.status})`;
+            }
+            this.triggerFeedback('error');
         } catch (error) {
             console.error('Camera test failed:', error);
-            const resultEl = document.getElementById('cameraTestResult');
+            const fallbackState = await this.fetchCameraStateData();
+            if (fallbackState) {
+                this.renderCameraState(fallbackState.state, fallbackState.snapshot);
+                if (resultEl) {
+                    resultEl.textContent = 'Camera endpoint unavailable; showing current camera state.';
+                }
+                this.triggerFeedback('warning');
+                return;
+            }
             if (resultEl) {
                 resultEl.textContent = error.message || 'Camera test failed: network error';
             }
