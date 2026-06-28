@@ -244,12 +244,24 @@ def clean_expired_sessions():
 
 def get_auth_context():
     clean_expired_sessions()
+    # Prefer Authorization header, but allow a secure fallback for
+    # non-AJAX consumers (like an <img> MJPEG tag) via ?token=... or
+    # X-Auth-Token header or cookie. This keeps the default behavior
+    # strict while enabling the live-image use-case.
     auth_header = request.headers.get('Authorization', '')
-    if not auth_header.startswith('Bearer '):
-        return None
-    token = auth_header.split(' ', 1)[1].strip()
+    token = None
+    if auth_header.startswith('Bearer '):
+        token = auth_header.split(' ', 1)[1].strip()
+
+    if not token:
+        # Fallbacks (query param, custom header, or cookie)
+        token = request.args.get('token') or request.headers.get('X-Auth-Token') or request.cookies.get('rr_auth_token')
+        if token:
+            token = token.strip()
+
     if not token:
         return None
+
     return sessions.get(token)
 
 def require_auth(min_role='viewer'):

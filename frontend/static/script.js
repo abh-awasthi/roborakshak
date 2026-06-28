@@ -1087,7 +1087,10 @@ class RoboRakshakController {
 
         if (state === 'streaming' && feedEl) {
             feedEl.style.display = 'block';
-            feedEl.src = `${this.baseURL}/api/camera/stream?ts=${Date.now()}`;
+            // Append token query param so <img> can authenticate (Authorization header
+            // cannot be attached to an <img> request). Token is short-lived session token.
+            const tokenParam = this.authToken ? `&token=${encodeURIComponent(this.authToken)}` : '';
+            feedEl.src = `${this.baseURL}/api/camera/stream?ts=${Date.now()}${tokenParam}`;
             if (hintEl) {
                 hintEl.textContent = 'Live camera stream active.';
             }
