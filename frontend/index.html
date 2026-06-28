@@ -158,10 +158,20 @@
                 <div class="camera-card">
                     <div class="camera-feed-placeholder">
                         <span class="camera-badge">Camera Feed</span>
-                        <img id="cameraFeed" class="camera-feed" src="" alt="Live camera feed" style="display:none; width:100%; max-height:320px; object-fit:cover; border-radius: 12px; margin-bottom: 12px;" />
+                        <div class="camera-media-grid">
+                            <div class="camera-media-pane">
+                                <span class="camera-media-label">Live</span>
+                                <img id="cameraFeed" class="camera-feed" src="" alt="Live camera feed" />
+                            </div>
+                            <div class="camera-media-pane">
+                                <span class="camera-media-label">Last Capture</span>
+                                <img id="cameraSnapshotPreview" class="camera-feed" src="" alt="Latest camera capture" />
+                            </div>
+                        </div>
                         <p id="cameraFeedHint">Start the stream to view live camera footage here.</p>
                         <p><strong>State:</strong> <span id="cameraStateValue">Not Connected</span></p>
                         <p><strong>Last Snapshot:</strong> <span id="cameraSnapshotValue">Never</span></p>
+                        <p><strong>Saved Image:</strong> <a id="cameraSnapshotLink" href="#" target="_blank" rel="noopener">None</a></p>
                         <p><strong>Test Result:</strong> <span id="cameraTestResult">Not run</span></p>
                     </div>
                     <div class="camera-actions">

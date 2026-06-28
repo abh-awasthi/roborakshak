@@ -1067,11 +1067,23 @@ class RoboRakshakController {
         oscillator.stop(ctx.currentTime + duration);
     }
 
-    renderCameraState(state, snapshotTs) {
+    resolveCameraAssetUrl(path) {
+        if (!path) {
+            return '';
+        }
+        if (path.startsWith('http://') || path.startsWith('https://')) {
+            return path;
+        }
+        return `${this.baseURL}${path}`;
+    }
+
+    renderCameraState(state, snapshotTs, snapshotUrl = null) {
         const stateEl = document.getElementById('cameraStateValue');
         const snapEl = document.getElementById('cameraSnapshotValue');
         const feedEl = document.getElementById('cameraFeed');
         const hintEl = document.getElementById('cameraFeedHint');
+        const snapshotEl = document.getElementById('cameraSnapshotPreview');
+        const snapshotLinkEl = document.getElementById('cameraSnapshotLink');
 
         if (stateEl) {
             const labels = {
@@ -1083,6 +1095,17 @@ class RoboRakshakController {
         }
         if (snapEl) {
             snapEl.textContent = snapshotTs ? new Date(snapshotTs * 1000).toLocaleString() : 'Never';
+        }
+        if (snapshotUrl && snapshotEl) {
+            const assetUrl = this.resolveCameraAssetUrl(snapshotUrl);
+            snapshotEl.src = `${assetUrl}?ts=${Date.now()}`;
+            snapshotEl.style.display = 'block';
+            if (snapshotLinkEl) {
+                snapshotLinkEl.href = assetUrl;
+                snapshotLinkEl.textContent = snapshotUrl.split('/').pop() || 'Open image';
+            }
+        } else if (!snapshotUrl && snapshotLinkEl && snapshotLinkEl.getAttribute('href') === '#') {
+            snapshotLinkEl.textContent = 'None';
         }
 
         if (state === 'streaming' && feedEl) {
@@ -1111,11 +1134,11 @@ class RoboRakshakController {
         const candidates = [
             {
                 url: `${this.baseURL}/api/camera/status`,
-                parse: (data) => ({ state: data?.state, snapshot: data?.last_snapshot_ts })
+                parse: (data) => ({ state: data?.state, snapshot: data?.last_snapshot_ts, snapshotUrl: data?.last_snapshot_url })
             },
             {
                 url: `${this.baseURL}/api/status`,
-                parse: (data) => ({ state: data?.camera?.state, snapshot: data?.camera?.last_snapshot_ts })
+                parse: (data) => ({ state: data?.camera?.state, snapshot: data?.camera?.last_snapshot_ts, snapshotUrl: data?.camera?.last_snapshot_url })
             }
         ];
 
@@ -1151,7 +1174,7 @@ class RoboRakshakController {
         try {
             const cameraState = await this.fetchCameraStateData();
             if (cameraState) {
-                this.renderCameraState(cameraState.state, cameraState.snapshot);
+                this.renderCameraState(cameraState.state, cameraState.snapshot, cameraState.snapshotUrl);
             } else {
                 this.renderCameraState('not_connected', null);
             }
@@ -1179,7 +1202,7 @@ class RoboRakshakController {
                 throw new Error(data.error || 'Camera command failed');
             }
             this.triggerFeedback('ok');
-            this.renderCameraState(data.state, data.captured_at || null);
+            this.renderCameraState(data.state, data.captured_at || null, data.snapshot_url || null);
             await this.updateDiagnostics();
             return data;
         } catch (error) {
@@ -1231,7 +1254,7 @@ class RoboRakshakController {
                     resultEl.textContent = data.message || 'Camera test passed';
                 }
                 this.triggerFeedback('ok');
-                this.renderCameraState(data.state, data.captured_at || null);
+                this.renderCameraState(data.state, data.captured_at || null, data.snapshot_url || null);
                 return;
             }
 
@@ -1243,7 +1266,7 @@ class RoboRakshakController {
                             ? 'Camera endpoint unavailable; showing current backend camera state.'
                             : 'Camera endpoint unavailable; current camera state is shown below.';
                     }
-                    this.renderCameraState(fallbackState.state, fallbackState.snapshot);
+                    this.renderCameraState(fallbackState.state, fallbackState.snapshot, fallbackState.snapshotUrl);
                     this.triggerFeedback('warning');
                     return;
                 }
@@ -1258,7 +1281,7 @@ class RoboRakshakController {
             console.error('Camera test failed:', error);
             const fallbackState = await this.fetchCameraStateData();
             if (fallbackState) {
-                this.renderCameraState(fallbackState.state, fallbackState.snapshot);
+                this.renderCameraState(fallbackState.state, fallbackState.snapshot, fallbackState.snapshotUrl);
                 if (resultEl) {
                     resultEl.textContent = 'Camera endpoint unavailable; showing current camera state.';
                 }

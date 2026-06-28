@@ -165,6 +165,8 @@ if MOCK_GPIO:
     print()
 
 app = Flask(__name__, template_folder='../frontend', static_folder='../frontend/static')
+STATIC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'frontend', 'static'))
+CAPTURE_DIR = os.path.join(STATIC_DIR, 'captures')
 
 # GPIO Pin Configuration
 LEFT_MOTOR_PIN1 = 5    # IN1
@@ -206,11 +208,14 @@ sessions = {}
 audit_log = []
 camera_state = "not_connected"
 camera_last_snapshot = None
+camera_last_snapshot_url = None
+camera_latest_frame_bytes = None
 request_buckets = defaultdict(deque)
 event_log = []
 EVENT_LOG_LIMIT = 300
 next_event_id = 1
 lock = threading.Lock()
+camera_access_lock = threading.Lock()
 
 def get_client_ip():
     forwarded = request.headers.get('X-Forwarded-For', '')
@@ -544,6 +549,9 @@ def release_camera_capture(cap):
             cap.close()
     except Exception:
         pass
+    finally:
+        if PICAMERA2_AVAILABLE and isinstance(cap, Picamera2):
+            time.sleep(0.4)
 
 
 def requested_and_fallback_resolutions():
@@ -694,44 +702,90 @@ def encode_frame_as_jpeg(frame):
         return None
 
 
+def save_camera_frame(frame):
+    global camera_last_snapshot, camera_last_snapshot_url
+    frame_bytes = encode_frame_as_jpeg(frame)
+    if frame_bytes is None:
+        return None, None
+
+    os.makedirs(CAPTURE_DIR, exist_ok=True)
+    captured_at = int(time.time())
+    filename = f'camera-{int(time.time() * 1000)}.jpg'
+    filepath = os.path.join(CAPTURE_DIR, filename)
+    with open(filepath, 'wb') as handle:
+        handle.write(frame_bytes)
+
+    camera_last_snapshot = captured_at
+    camera_last_snapshot_url = f'/static/captures/{filename}'
+    return camera_last_snapshot_url, captured_at
+
+
+def save_camera_frame_bytes(frame_bytes):
+    global camera_last_snapshot, camera_last_snapshot_url
+    if not frame_bytes:
+        return None, None
+
+    os.makedirs(CAPTURE_DIR, exist_ok=True)
+    captured_at = int(time.time())
+    filename = f'camera-{int(time.time() * 1000)}.jpg'
+    filepath = os.path.join(CAPTURE_DIR, filename)
+    with open(filepath, 'wb') as handle:
+        handle.write(frame_bytes)
+
+    camera_last_snapshot = captured_at
+    camera_last_snapshot_url = f'/static/captures/{filename}'
+    return camera_last_snapshot_url, captured_at
+
+
 def test_camera_connection():
     if not CAMERA_ENABLED:
-        return False, 'Camera support is disabled (CAMERA_ENABLED=false)'
+        return False, 'Camera support is disabled (CAMERA_ENABLED=false)', None, None
 
     if CAMERA_DRIVER not in ('auto', 'picamera2', 'opencv'):
-        return False, f'Unsupported CAMERA_DRIVER={CAMERA_DRIVER}'
+        return False, f'Unsupported CAMERA_DRIVER={CAMERA_DRIVER}', None, None
+
+    if camera_state == 'streaming':
+        return True, 'Camera stream is active', camera_last_snapshot_url, camera_last_snapshot
+
+    if not camera_access_lock.acquire(timeout=5):
+        return False, 'Camera is busy; stop the stream or try again in a moment', None, None
 
     picamera2_error = None
-    if CAMERA_DRIVER in ('auto', 'picamera2'):
-        picam, picamera2_error = get_picamera2_capture()
-        if picam is not None:
-            try:
-                frame = picam.capture_array()
-            finally:
-                release_camera_capture(picam)
-            if frame is None:
-                picamera2_error = 'Picamera2 opened the camera but captured no frame'
-            else:
-                return True, f'Camera connected (picamera2), frame captured ({frame.shape[1]}x{frame.shape[0]})'
-        print('[CAMERA] picamera2 test failed:', picamera2_error)
-        if CAMERA_DRIVER == 'picamera2':
-            return False, f'Failed to capture a frame from the camera (picamera2): {picamera2_error}'
-
-    cap = None
     try:
-        cap, frame, message = get_opencv_capture_with_frame()
-        if frame is None:
-            if picamera2_error:
-                return False, (
-                    f'Failed to capture a frame from the camera. '
-                    f'Picamera2 failed: {picamera2_error}; OpenCV failed: {message}'
-                )
-            return False, f'Failed to capture a frame from the camera (opencv): {message}'
-        return True, f'Camera connected (opencv), frame captured ({message})'
-    except Exception as exc:
-        return False, str(exc)
+        if CAMERA_DRIVER in ('auto', 'picamera2'):
+            picam, picamera2_error = get_picamera2_capture()
+            if picam is not None:
+                try:
+                    frame = picam.capture_array()
+                finally:
+                    release_camera_capture(picam)
+                if frame is None:
+                    picamera2_error = 'Picamera2 opened the camera but captured no frame'
+                else:
+                    url, captured_at = save_camera_frame(frame)
+                    return True, f'Camera connected (picamera2), frame captured ({frame.shape[1]}x{frame.shape[0]})', url, captured_at
+            print('[CAMERA] picamera2 test failed:', picamera2_error)
+            if CAMERA_DRIVER == 'picamera2':
+                return False, f'Failed to capture a frame from the camera (picamera2): {picamera2_error}', None, None
+
+        cap = None
+        try:
+            cap, frame, message = get_opencv_capture_with_frame()
+            if frame is None:
+                if picamera2_error:
+                    return False, (
+                        f'Failed to capture a frame from the camera. '
+                        f'Picamera2 failed: {picamera2_error}; OpenCV failed: {message}'
+                    ), None, None
+                return False, f'Failed to capture a frame from the camera (opencv): {message}', None, None
+            url, captured_at = save_camera_frame(frame)
+            return True, f'Camera connected (opencv), frame captured ({message})', url, captured_at
+        except Exception as exc:
+            return False, str(exc), None, None
+        finally:
+            release_camera_capture(cap)
     finally:
-        release_camera_capture(cap)
+        camera_access_lock.release()
 
 
 def get_camera_capture():
@@ -757,9 +811,41 @@ def get_camera_capture():
     return cap
 
 
+def capture_camera_frame_once():
+    picamera2_error = None
+    if CAMERA_DRIVER in ('auto', 'picamera2'):
+        picam, picamera2_error = get_picamera2_capture()
+        if picam is not None:
+            try:
+                frame = picam.capture_array()
+            finally:
+                release_camera_capture(picam)
+            if frame is not None:
+                return frame, f'picamera2 frame captured ({frame.shape[1]}x{frame.shape[0]})'
+            picamera2_error = 'Picamera2 opened the camera but captured no frame'
+        if CAMERA_DRIVER == 'picamera2':
+            return None, f'Failed to capture a frame from the camera (picamera2): {picamera2_error}'
+
+    cap = None
+    try:
+        cap, frame, message = get_opencv_capture_with_frame()
+        if frame is not None:
+            return frame, f'opencv frame captured ({message})'
+        if picamera2_error:
+            return None, f'Picamera2 failed: {picamera2_error}; OpenCV failed: {message}'
+        return None, f'Failed to capture a frame from the camera (opencv): {message}'
+    finally:
+        release_camera_capture(cap)
+
+
 def generate_camera_frames():
+    global camera_latest_frame_bytes
+    if not camera_access_lock.acquire(timeout=5):
+        print('[CAMERA] Stream could not start because the camera is busy')
+        return
     cap = get_camera_capture()
     if cap is None:
+        camera_access_lock.release()
         return
     try:
         if PICAMERA2_AVAILABLE and isinstance(cap, Picamera2):
@@ -772,6 +858,7 @@ def generate_camera_frames():
                     frame_bytes = encode_frame_as_jpeg(frame)
                     if frame_bytes is None:
                         break
+                    camera_latest_frame_bytes = frame_bytes
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
                     time.sleep(0.05)
@@ -794,6 +881,7 @@ def generate_camera_frames():
                     if not ret:
                         break
                     frame_bytes = jpeg.tobytes()
+                    camera_latest_frame_bytes = frame_bytes
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
                     time.sleep(0.05)
@@ -805,6 +893,8 @@ def generate_camera_frames():
     except GeneratorExit:
         # Stream closed by client
         pass
+    finally:
+        camera_access_lock.release()
 
 
 # Routes
@@ -860,6 +950,11 @@ def status():
         'speed': motor_speed,
         'direction': motor_direction,
         'role': auth_ctx['role'] if auth_ctx else 'viewer',
+        'camera': {
+            'state': camera_state,
+            'last_snapshot_ts': camera_last_snapshot,
+            'last_snapshot_url': camera_last_snapshot_url
+        },
         'safety': {
             'max_speed_cap': MAX_SPEED_CAP,
             'deadman_timeout_sec': DEADMAN_TIMEOUT_SEC,
@@ -944,7 +1039,8 @@ def health():
         },
         'camera': {
             'state': camera_state,
-            'last_snapshot_ts': camera_last_snapshot
+            'last_snapshot_ts': camera_last_snapshot,
+            'last_snapshot_url': camera_last_snapshot_url
         },
         'motor': {
             'direction': motor_direction,
@@ -963,7 +1059,8 @@ def health():
 def camera_status():
     return jsonify({
         'state': camera_state,
-        'last_snapshot_ts': camera_last_snapshot
+        'last_snapshot_ts': camera_last_snapshot,
+        'last_snapshot_url': camera_last_snapshot_url
     })
 
 @app.route('/api/camera/ready', methods=['POST'])
@@ -1002,21 +1099,45 @@ def camera_snapshot():
     global camera_last_snapshot
     if camera_state == 'not_connected':
         return jsonify({'error': 'camera_not_connected'}), 400
-    camera_last_snapshot = int(time.time())
+
+    if camera_state == 'streaming':
+        snapshot_url, captured_at = save_camera_frame_bytes(camera_latest_frame_bytes)
+        if snapshot_url is None:
+            return jsonify({
+                'error': 'snapshot_failed',
+                'message': 'No live camera frame is available yet. Wait for the stream preview to appear, then try again.'
+            }), 503
+    else:
+        if not camera_access_lock.acquire(timeout=5):
+            return jsonify({
+                'error': 'camera_busy',
+                'message': 'Camera is busy; stop the stream or try again in a moment.'
+            }), 409
+        try:
+            frame, message = capture_camera_frame_once()
+            if frame is None:
+                return jsonify({'error': 'snapshot_failed', 'message': message}), 500
+            snapshot_url, captured_at = save_camera_frame(frame)
+            if snapshot_url is None:
+                return jsonify({'error': 'snapshot_failed', 'message': 'Captured frame could not be encoded as JPEG'}), 500
+        finally:
+            camera_access_lock.release()
+
     add_audit('camera_snapshot', 'driver')
-    add_event('camera', 'Snapshot captured (placeholder)', 'warning')
+    add_event('camera', f'Snapshot saved: {snapshot_url}', 'info')
     return jsonify({
-        'status': 'snapshot placeholder captured',
+        'status': 'snapshot captured',
         'state': camera_state,
-        'captured_at': camera_last_snapshot,
-        'note': 'Camera hardware integration pending.'
+        'captured_at': captured_at,
+        'snapshot_url': snapshot_url,
+        'saved_to': os.path.join(CAPTURE_DIR, os.path.basename(snapshot_url))
     })
 
 @app.route('/api/camera/test', methods=['POST'])
 @require_auth('driver')
 def camera_test():
     global camera_state
-    ok, message = test_camera_connection()
+    ok, message, snapshot_url, captured_at = test_camera_connection()
     add_audit('camera_test', 'driver' if ok else 'system')
     if ok:
         if camera_state == 'not_connected':
@@ -1025,7 +1146,9 @@ def camera_test():
         return jsonify({
             'status': 'camera_ok',
             'message': message,
-            'state': camera_state
+            'state': camera_state,
+            'captured_at': captured_at,
+            'snapshot_url': snapshot_url
         })
     add_event('camera', f'Camera test failed: {message}', 'warning')
     return jsonify({'error': 'camera_test_failed', 'message': message}), 500
