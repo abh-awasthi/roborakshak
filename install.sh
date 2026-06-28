@@ -50,7 +50,7 @@ sudo apt-get install -y python3-pip python3-venv git python3-dev libcap-dev
 # Install optional camera libraries (if available on this OS version)
 sudo apt-get install -y libopenjp2-7 libtiff5 libwebp7 libharfbuzz0b libjasper1 2>/dev/null || true
 # Ensure libcamera and Python bindings are installed for Raspberry Pi CSI cameras
-sudo apt-get install -y libcamera-apps libcamera-dev python3-libcamera python3-picamera2 i2c-tools 2>/dev/null || true
+sudo apt-get install -y libcamera-apps libcamera-dev python3-libcamera python3-picamera2 python3-flask python3-opencv python3-rpi.gpio python3-numpy i2c-tools 2>/dev/null || true
 
 echo -e "${GREEN}✓ System packages updated${NC}"
 echo ""
