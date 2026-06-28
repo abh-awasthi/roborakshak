@@ -8,6 +8,43 @@ import json
 from functools import wraps
 from collections import deque, defaultdict
 
+
+def _read_ini_setting(key, default=None):
+    config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config.ini'))
+    if not os.path.exists(config_path):
+        return default
+    with open(config_path, 'r', encoding='utf-8') as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line or line.startswith('#') or line.startswith('##') or line.startswith(';'):
+                continue
+            if '=' not in line:
+                continue
+            name, value = line.split('=', 1)
+            if name.strip() == key:
+                return value.strip()
+    return default
+
+
+def _env_or_ini_bool(key, default=False):
+    env_value = os.getenv(key)
+    if env_value is not None:
+        return env_value.lower() in ('1', 'true', 'yes', 'on')
+    ini_value = _read_ini_setting(key)
+    if ini_value is None:
+        return default
+    return ini_value.lower() in ('1', 'true', 'yes', 'on')
+
+
+def _env_or_ini_value(key, default):
+    env_value = os.getenv(key)
+    if env_value is not None:
+        return env_value
+    ini_value = _read_ini_setting(key)
+    if ini_value is None:
+        return default
+    return ini_value
+
 # OpenCV support for camera testing
 try:
     import cv2
@@ -105,9 +142,9 @@ AUDIT_LOG_LIMIT = 200
 RATE_LIMIT_WINDOW_SEC = int(os.getenv('RATE_LIMIT_WINDOW_SEC', '10'))
 RATE_LIMIT_MAX_REQUESTS = int(os.getenv('RATE_LIMIT_MAX_REQUESTS', '40'))
 RESTRICT_TO_LOCAL_NET = os.getenv('RESTRICT_TO_LOCAL_NET', '0').lower() in ('1', 'true', 'yes')
-CAMERA_ENABLED = os.getenv('CAMERA_ENABLED', '0').lower() in ('1', 'true', 'yes')
-CAMERA_DEVICE_INDEX = int(os.getenv('CAMERA_DEVICE_INDEX', '0'))
-CAMERA_RESOLUTION = os.getenv('CAMERA_RESOLUTION', '1920x1080')
+CAMERA_ENABLED = _env_or_ini_bool('CAMERA_ENABLED', True)
+CAMERA_DEVICE_INDEX = int(_env_or_ini_value('CAMERA_DEVICE_INDEX', '0'))
+CAMERA_RESOLUTION = _env_or_ini_value('CAMERA_RESOLUTION', '1920x1080')
 
 # Global variables
 left_pwm = None
