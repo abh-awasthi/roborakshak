@@ -78,21 +78,29 @@ echo ""
 echo -e "${YELLOW}Step 4: Creating systemd service...${NC}"
 SERVICE_FILE="/etc/systemd/system/roborakshak.service"
 
+sudo mkdir -p /var/log/roborakshak
+sudo chown -R "$CURRENT_USER":"$(id -gn "$CURRENT_USER")" /var/log/roborakshak 2>/dev/null || true
+
 sudo tee "$SERVICE_FILE" > /dev/null << EOF
 [Unit]
 Description=RoboRakshak Motor Control Service
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=$CURRENT_USER
-WorkingDirectory=$PROJECT_DIR/backend
+WorkingDirectory=$PROJECT_DIR
 Environment="PATH=$PROJECT_DIR/venv/bin"
-# Set FORCE_MOCK=1 to force mock GPIO (useful for testing without hardware)
+Environment="PYTHONPATH=$PROJECT_DIR"
+Environment="PYTHONUNBUFFERED=1"
 Environment="FORCE_MOCK=0"
-ExecStart=$PROJECT_DIR/venv/bin/python3 app.py
-Restart=on-failure
+Environment="CAMERA_ENABLED=1"
+ExecStart=$PROJECT_DIR/venv/bin/python3 -u $PROJECT_DIR/backend/app.py
+Restart=always
 RestartSec=10
+StartLimitIntervalSec=60
+StartLimitBurst=3
 StandardOutput=journal
 StandardError=journal
 
@@ -106,8 +114,10 @@ echo ""
 # Step 5: Enable and start service
 echo -e "${YELLOW}Step 5: Enabling and starting RoboRakshak service...${NC}"
 sudo systemctl daemon-reload
+sudo systemctl reset-failed roborakshak.service 2>/dev/null || true
 sudo systemctl enable roborakshak.service
 sudo systemctl start roborakshak.service
+sudo systemctl restart roborakshak.service
 
 echo -e "${GREEN}✓ Service enabled and started${NC}"
 echo ""
